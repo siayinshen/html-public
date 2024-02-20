@@ -1,0 +1,6 @@
+ErrorDocument 404 /hcc/database/patient/index.php
+RewriteEngine On
+RewriteBase /hcc/database/patient
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /hcc/database/patient/index.php [L]

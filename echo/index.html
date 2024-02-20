@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>ECHO Reporting Software</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+</head>
+<body>
+<!--
+<script src="pdf.js"></script>
+<script src="pdfw.js"></script>
+<!--  document.getElementById("canvas-parent").innerHTML=""
+-->
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.9.359/pdf.worker.min.js"></script>
+<script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+<script src="https://unpkg.com/downloadjs@1.4.7"></script>
+
+<script src="pdflib.js"></script>
+
+<style>
+.pic-holder{
+  padding: 0.25vh 0.25%;
+}
+.pic-holder > canvas{
+  width: 100%;
+  height: 100%;
+}
+input{
+  font-size: 1.5em;
+}
+.canvas-parent{
+  display:flex;
+  width: 95vw;
+  flex-wrap: wrap;
+}
+.report, .pdf-iframe{
+  width: 100%;
+  height: 50vh;
+}
+.report{
+  min-width: 100%;
+  max-width: 100%;
+  max-height: 50vh;
+  font-family: sans-serif;
+  font-size: 1.2em;
+}
+.pdf-disp{
+  width: 45%;
+  height: max-content;
+}
+
+.pdf-interface{
+  display: flex;
+  width: 90vw;
+  height: max-content;
+  justify-content: space-around;
+}
+</style>
+  <img id="report-logo" src="logo.jpg" style="display:none">
+  <h3>My First ECHO Reporting Software</h3>
+  <span>Load a file to report: </span><input type="file" id="file-pdf" accept=".pdf">
+  <br />
+  <br />
+  <div class="pdf-interface">
+    <div class="pdf-disp">
+      <h3>Customise Your Report: </h3>
+      <textarea class="report" id="echo-report" value=""></textarea>
+      <input type="button" id="btn-lt" value="Load Template" onclick="writeReport(pageTextData)" disabled>
+      <input type="button" id="btn-gr" value="Add Custom Report To PDF" onclick="genReport(pageImageData,pageTextData)" disabled>
+    </div>
+    <div class="pdf-disp">
+      <h3>Generated PDF:</h3>
+      <iframe class="pdf-iframe" id="disp-report" src=""></iframe>
+      <span><input type="text" id="suggested-title" placeholder="File Name To Be Saved As"></input>.pdf</span>
+      <input type="button" id="btn-dl" value="Save Report" onclick="genReport(pageImageData,pageTextData).then(e=>downloadPdf())" disabled>
+    </div>
+  </div>  
+  <div>
+    <h2>Extracted Images:</h2>
+    <div id="canvas-parent" class="canvas-parent">
+  </div>
+  </div>
+  <script>
+//clear data
+console.clear();
+document.getElementById("file-pdf").value=""
+document.getElementById("echo-report").value=""
+document.getElementById("suggested-title").value=""
+//force disable buttons
+document.getElementById("btn-lt").disabled=true
+document.getElementById("btn-gr").disabled=true
+document.getElementById("btn-dl").disabled=true
+
+function createCanvas(data,w,h,text="",transform=[0,0]){
+  par = document.getElementById("canvas-parent")
+  d = document.createElement("div")
+  d.className="pic-holder"
+  c = document.createElement("canvas")
+  c.className =text
+  c.width = w;
+  c.height = h;
+  d.style.width = transform[0]*100 +"%";
+  //d.style.height = transform[1]*100 +"vh";
+  ctx = c.getContext('2d');
+  ctx.putImageData(data, 0, 0);
+  d.appendChild(c)
+  par.appendChild(d)
+  return c.toDataURL('image/jpeg');
+}
+function addAlphaChannelToUnit8ClampedArray(unit8Array, imageWidth, imageHeight) {
+  const newImageData = new Uint8ClampedArray(imageWidth * imageHeight * 4);
+  
+  for (let j = 0, k = 0, jj = imageWidth * imageHeight * 4; j < jj; ) { 
+   newImageData[j++] = unit8Array[k++];
+   newImageData[j++] = unit8Array[k++];
+   newImageData[j++] = unit8Array[k++];
+   newImageData[j++] = 255;
+ }
+
+  return newImageData;
+}
+
+//helper function to average nonzero values
+function avg(arr){
+  acc1 = 0
+  acc2 = 0
+  for(var av=0;av<arr.length;av++){
+    if(arr[av]!==0 && !isNaN(arr[av])){
+      acc1+=arr[av]
+      acc2++
+    }
+  }
+  return acc1/acc2
+}
+
+//Helper function to join statements with an and
+function joinAnd(arr){
+  if(arr.length <= 1){return arr.join()}
+  arr[arr.length - 1] = "and " + arr[arr.length - 1]
+  arr=arr.join(", ")
+  return arr.replace(", and"," and")
+}
+
+pageTextData = []
+pageImageData = []
+ref_pages=[] //source pdf
+pages=[] //generated pdf
+headerBottomPoint = 0
+sectionTopPoint = 0
+sectionBottomPoint = 0
+//Exposing things
+var pdfDoc = 0
+var font = 0
+var font_bold = 0
+var font_bold_oblique = 0
+//helper debug vars
+interest=[]
+pagedescr=[]
+p1=0
+c1=0
+temp=[]
+
+async function imageToText(image){
+  const worker= await Tesseract.createWorker('eng')
+  var response = await worker.recognize(image)
+  response = response.data.text
+  worker.terminate();
+  return response
+}
+async function downloadPdf(){
+  const pdfBytes = await pdfDoc.save()
+  download(pdfBytes, document.getElementById("suggested-title").value+".pdf", "application/pdf");
+}
+async function displayPdf(pdfDoc, target="pdf"){
+  document.getElementById(target).src = await pdfDoc.saveAsBase64({ dataUri: true });
+}
+
+function findLastInsertionPoint(points=[[0,0]]){
+  var pcnt=0
+  var y = 0
+  for(var pt=0;pt<points.length;pt++){
+    if(points[pt][0]>pcnt){
+      [pcnt,y]=points[pt]
+    }else{
+      y = Math.max(points[pt][1],y)
+    }
+  }
+  return [pcnt,y]
+}
+async function debugPdf(pdfDoc){
+  temp = await pdfjsLib.getDocument(await pdfDoc.save()).promise
+  p1 = await temp.getPage(1)
+  c1 = await p1.getTextContent()
+  return [p1,c1]
+}
+
+//crops a source canvas by percentages rel to top left
+function cropCanvas(sourceCanvas,left,top,relWidth,relHeight){
+    var destCanvas = document.createElement('canvas');
+    left = sourceCanvas.width*left
+    top = sourceCanvas.height*top
+    destCanvas.width = sourceCanvas.width*relWidth;
+    destCanvas.height = sourceCanvas.height*relHeight;
+    destCanvas.getContext("2d").drawImage(
+        sourceCanvas,
+        left,top,sourceCanvas.width*relWidth,sourceCanvas.height*relHeight,  // source rect with content to crop
+        0,0,sourceCanvas.width*relWidth,sourceCanvas.height*relHeight);      // newCanvas, same size as source rect
+    //document.body.appendChild(destCanvas);//debug cropping
+    return destCanvas.toDataURL('image/jpeg');
+}
+async function genReport(image,text){
+  image = image.sort((a,b)=>(-a[1].localeCompare(b[1])))
+  pageStrainData=[]
+  document.getElementById("btn-dl").disabled=true
+  document.getElementById("btn-lt").disabled=true //prevent clicking when not ready
+  document.getElementById("btn-gr").disabled=true
+  document.getElementById("canvas-parent").innerHTML=""
+  //Sneakily convert custom logo to base 64
+  logo = document.getElementById("report-logo")
+  logoc = document.createElement('canvas');
+  logoctx = logoc.getContext('2d');
+  logoc.width = logo.width;
+  logoc.height = logo.height;
+  logoctx.drawImage(logo, 0, 0);
+  logo = logoc.toDataURL('image/jpeg');
+  //Generate canvas for each image in var image
+  imaged = image.map(function(x,n){
+    var dUri = createCanvas(x[0],x[2][0],x[2][1],x[1],x[3])
+    //if scale value of image is >0.9, that is a fullwidth image, we are interested
+    //as this will either be the 3d strain image or the 2d strain image.
+    if(x[3][0]>0.9){
+      pageStrainData.push([n,dUri])
+    }
+    return dUri
+  }) 
+  image.reverse()
+  imaged.reverse()
+//console.log({'pageTextData':text, 'pageImageData':image});
+  [pdfDoc, font] = await initPdf(210,297)
+  pageInfo = await addPage(pdfDoc, font,text[0].slice(1), text[0][0])
+  pageInfo = pageInfo[2]
+  page_dims = pageInfo.getSize()
+  page_dims = {"width":page_dims.width/2.84365,"height":page_dims.height/2.84365}
+  page_dims_margined = {"width":page_dims.width-pageInfo.margin[0]-pageInfo.margin[1],"height":page_dims.height-pageInfo.margin[2]-pageInfo.margin[3]}
+  //draw logo
+  await drawImage(pdfDoc,logo,0,headerBottomPoint,image[0][4],"jpg","Left","Top")
+  sectionTopPoint = headerBottomPoint
+  sectionBottomPoint = headerBottomPoint+(image[0][2][1]*image[0][4]/2.84365)
+  //write title
+  await writeText(pdfDoc,font_bold_oblique,text[1][1],8+ image[0][2][0]*image[0][4]/2.84365,sectionTopPoint,text[1][0],"Left")
+  sectionBottomPoint += 3
+  //here we identify pointers into sections of interest
+  var sectionInfo = [
+    ["Patient",1/2,[0,0.4,1]],
+    ["Study",1/2,[0,0.4,1]],
+    ["2D",1/3,[0,0.45,0.65,0.85,1]],
+    ["M",1/3,[0,0.45,0.65,0.85,1]],
+    ["Doppler",1/3,[0,0.45,0.65,0.85,1]],
+    ["Strain",1/2,[0,0.5,0.7,0.8,1]],
+    ["RV",1/2,[0,0.5,0.7,0.8,1]],
+    ["Comment",1,[0,1]]
+    ]
+  var sectionPointers = [[0,0]]
+  for(var i=0;i<text.length;i++){
+    var fText = text[i].slice(1) //get text contents of obj
+    //start idx of section into text[] is ...?
+    var pos = sectionInfo.findIndex(x=>fText.findIndex(y=>y===x[0])>=0)
+    //text[i][0] is font size, is this >=12 aka a header? not started yet?
+    if(text[i][0] >= 12 && pos>=0 && text[i][1]!=="Gender"){
+      //set start position
+      sectionPointers[pos]=[i,i]
+    }else{
+      //increment end position of last section in array
+      sectionPointers[sectionPointers.length-1][1]=i
+    }
+  }
+  //refactor column widths as needed
+  var vCnt = 3
+  for(var i=2;i<=4;i++){
+    if(sectionPointers[i]===undefined ||
+       sectionPointers[i][1]<=sectionPointers[i][0]){
+      vCnt--
+      sectionInfo[i][1] = -Infinity
+    }
+  }
+  for(var i=2;i<=4;i++){
+    if(sectionInfo[i][1]>0){
+      sectionInfo[i][1] = 1/vCnt
+    }
+  }
+  vCnt2 = 2
+  for(var i=5;i<=6;i++){
+    if(sectionPointers[i]===undefined ||
+       sectionPointers[i][1]<=sectionPointers[i][0]){
+      vCnt2--
+      sectionInfo[i][1] = -Infinity
+    }
+  }
+  for(var i=5;i<=6;i++){
+    if(sectionInfo[i][1]>0){
+      sectionInfo[i][1] = 1/vCnt2
+    }
+  }
+  if((vCnt + vCnt2) < 2){
+    alert("Workaround for missing parameters.")
+  }
+  
+  sec_left = 0
+  //where are the section locations?
+  sec_bottoms = [[sec_left,sectionBottomPoint]]
+  for(var section=0;section<sectionInfo.length-1;section++){
+    if(sectionPointers[section]!==undefined && sectionInfo[section][1]>0){
+      sec_bottoms.push(await drawSection(pdfDoc, font_bold, font, text.slice(sectionPointers[section][0],sectionPointers[section][1]+1), sec_left, sectionBottomPoint, sectionInfo[section][1], sectionInfo[section][2]))
+      sec_left += page_dims_margined.width*sectionInfo[section][1]
+      if(sec_left > page_dims_margined.width-1){ //flexbox effect
+        sec_left = 0
+        sec_bottoms = [findLastInsertionPoint(sec_bottoms)]
+        sectionBottomPoint=sec_bottoms[0][1]
+      }
+    }
+  }
+  if(document.getElementById("echo-report").value==""){
+    writeReport(text)
+  }
+  //Draw report
+  sec_bottoms.push(await drawSection(pdfDoc, font_bold, font, [[12,"Report"],[12,document.getElementById("echo-report").value]], 0, sectionBottomPoint, sectionInfo[7][1], sectionInfo[7][2]))
+  sectionBottomPoint = sec_bottoms.pop()[1]
+  sectionBottomPoint += 12/2.83465
+  var pages = await pdfDoc.getPages()
+  var cur_page = pages[pages.length-1]
+  cur_page.drawLine({
+    start: { x: 5, y: page_dims.height-sectionBottomPoint},
+    end: { x: page_dims.width-7, y: page_dims.height-sectionBottomPoint },
+    thickness: 0.3,
+    color: PDFLib.rgb(0, 0, 0),
+    opacity: 1,
+  })
+  //Draw images
+  await bulkInsertImage(pdfDoc, imaged.slice(1), image.slice(1),0,sectionBottomPoint)
+  //Show pdf
+  displayPdf(pdfDoc,"disp-report") //make sure this goes after all pdf operations
+  document.getElementById("btn-lt").disabled=false //report should be all nicely parsed by now
+  document.getElementById("btn-gr").disabled=false
+  document.getElementById("btn-dl").disabled=false
+  //debugPdf(pdfDoc)
+}
+
+async function bulkInsertImage(pdfDoc, imageDataArray, imageParams,x,y,page=Infinity,margin=[5,5,5,5]){
+  const pages = await pdfDoc.getPages()
+  if(page===Infinity){page=pages.length-1}
+  var cur_page = pages[page]
+  var page_dims = await cur_page.getSize()
+  page_dims.width/=2.83465
+  page_dims.height/=2.83465
+  pcnt = 0
+  for(im=0;im<imageDataArray.length;im++){
+    w = imageParams[im][2][0]*imageParams[im][4]/2.83465
+    h = imageParams[im][2][1]*imageParams[im][4]/2.83465
+    if(x+w > page_dims.width && w < page_dims.width){ //are we too far right
+      x=0
+      y+=imageParams[im-1][2][1]*imageParams[im-1][4]/2.83465+5
+    }
+    if((y+h)>(page_dims.height-margin[2]-margin[3])){ //is there enough space on page
+      pcnt += 1
+      await addPage(pdfDoc, font,pageTextData[0].slice(1), pageTextData[0][0])
+      x=0
+      y=margin[2]
+    }
+    await drawImage(pdfDoc,imageDataArray[im],x,y,imageParams[im][4],"jpg","Left","Continue",page+pcnt)
+    x += w + 1
+  }
+}
+// THIS IS THE IMAGE FUNCTION
+// margin = [left,right,top,bottom]
+async function drawImage(pdfDoc, imageDataUrl, x, y, s, type="jpg", alignx="Left",aligny="Continue", page=Infinity,margin=[5,5,5,5]){
+  const pages = await pdfDoc.getPages()
+  if(page===Infinity){page=pages.length-1}
+  var cur_page = pages[page]
+  var { width, height } = cur_page.getSize()
+  const inpImage = await pdfDoc.embedJpg(imageDataUrl)
+  const inpDims = inpImage.scale(s/2.83465)
+  switch(alignx){
+    case "Right":
+    x = (width/2.83465) - inpDims.width - margin[1] - x
+    break;
+    case "Center":
+    x += (width/2.83465 -inpDims.width)/2
+    break;
+    default:
+    x += margin[0]
+    break;
+  }
+  switch(aligny){
+    case "Top":
+    y = height/2.83465 - inpDims.height - margin[2] - y
+    break;
+    case "Center":
+    y += (height/2.83465 + inpDims.height)/2
+    break;
+    case "Bottom":
+    y += margin[3] + inpDims.height
+    break;
+    default:
+    y = height/2.83465 - inpDims.height - margin[2] - y
+    break;
+  }
+  cur_page.drawImage(inpImage, {
+    x: x,
+    y: y,
+    width: inpDims.width,
+    height: inpDims.height
+  })
+  return [width,height]
+}
+
+async function drawSection(pdfDoc, headerFontObj, fontObj, secData, x, y, secWidth, colWidths=[1], fontSize=11, alignx="Left",aligny="Continue", header=false, page=Infinity,margin=[5,5,5,5], c=[0,0,0]){
+  const pages = await pdfDoc.getPages()
+  if(page===Infinity){page=pages.length-1}
+  var cur_page = pages[page]
+  var p_dims = await cur_page.getSize()
+  secWidth *= (p_dims.width/2.83465 - margin[0] - margin[1])
+  ins_point = y
+  pcnt = page
+  header = secData.shift()
+  hfs = header[0]
+  // write header as being the first item in secData. Join the contents, in case
+  // multiple text objects are present
+  writeText(pdfDoc, headerFontObj, header.slice(1).join("/"), x, ins_point, hfs)
+  ins_point += (hfs/2.83465)
+  cur_page.drawLine({
+    start: { x: x+margin[0], y: p_dims.height/2.83465 - ins_point  - margin[2]-1},
+    end: { x: x+margin[0]+secWidth-2, y: p_dims.height/2.83465 - ins_point - margin[2]-1 },
+    thickness: 0.3,
+    color: PDFLib.rgb(0, 0, 0),
+    opacity: 1,
+  })
+  ins_point += 2;
+  temp_target = [pcnt,ins_point]
+  for(dt=0;dt<secData.length;dt++){
+    for(h=1;h<secData[dt].length;h++){
+      left_shift = secWidth * colWidths[h-1]
+      temp_target2 = await writeMultilineText(pdfDoc, fontObj, secData[dt][h], x+left_shift, ins_point, secWidth*(colWidths[h]-colWidths[h-1])*0.99,secData[dt][0]-1,"Left","Continue",false,0)
+      temp_target=findLastInsertionPoint([temp_target,temp_target2])
+    }
+    [pcnt,ins_point]=temp_target
+  }
+  return [pcnt,ins_point+(fontSize*0.5/2.83465)]
+}
+async function writeMultilineText(pdfDoc, fontObj, text, x, y, secWidth, fontSize=11, alignx="Left",aligny="Continue", header=false, page=Infinity,margin=[5,5,5,5], c=[0,0,0]){
+  const pages = await pdfDoc.getPages()
+  if(page===Infinity){page=pages.length-1}
+  var cur_page = pages[page]
+  var p_dims = await cur_page.getSize()
+  text=text.split("\n")
+  iter=0
+  pcnt=page
+  secWidth *= 2.83465
+  for(j=0;j<text.length;j++){
+//console.log(j,text[j])
+    text_width = font.widthOfTextAtSize(text[j],fontSize)
+    if(text_width <= secWidth){
+      writeText(pdfDoc, fontObj, text[j], x, y+(fontSize*iter/2.83465), fontSize, alignx,aligny, header, pcnt,margin, c)  
+    }else{
+      text[j] = text[j].split(" ")
+      while(text_width > secWidth){
+        var line = ""
+        do{
+          line += (text[j].shift()+" ")
+        }
+        while (font.widthOfTextAtSize(line+text[j][0],fontSize) <= secWidth)
+        writeText(pdfDoc, fontObj, line, x, y+(fontSize*iter/2.83465), fontSize, alignx,aligny, header, pcnt,margin, c)
+        iter += 1.1
+        if(y+(fontSize*(iter+2)/2.83465) > p_dims.height/2.83465-margin[2]-margin[3]){ //wrap to next page
+          iter=0
+          pcnt += 1
+          y=headerBottomPoint
+          await addPage(pdfDoc, font,pageTextData[0].slice(1), pageTextData[0][0])
+        }
+        text_width = font.widthOfTextAtSize(text[j].join(" "),fontSize)
+      }
+      writeText(pdfDoc, fontObj, text[j].join(" "), x, y+(fontSize*iter/2.83465), fontSize, alignx,aligny, header, pcnt,margin, c) 
+    }
+    iter += 1.1
+    if(y+(fontSize*(iter+2)/2.83465) > p_dims.height/2.83465-margin[2]-margin[3]){ //wrap to next page
+          iter=0
+          pcnt += 1
+          y=headerBottomPoint
+          await addPage(pdfDoc, font,pageTextData[0].slice(1), pageTextData[0][0])
+    }
+  }
+  return [pcnt,y+(fontSize*iter/2.83465)]
+}
+// margin = [left,right,top,bottom]
+async function writeText(pdfDoc, fontObj, text, x, y, fontSize=11, alignx="Left",aligny="Continue", header=false, page=Infinity,margin=[5,5,5,5], c=[0,0,0]){
+  const pages = await pdfDoc.getPages()
+  if(page===Infinity){page=pages.length-1}
+  var cur_page = pages[page]
+  var { width, height } = cur_page.getSize()
+  text_width = font.widthOfTextAtSize(text,fontSize)
+  switch(alignx){
+    case "Right":
+    x = (width - text_width)/2.83465 - margin[1] - x
+    break;
+    case "Center":
+    x += (width-text_width)/(2*2.83465)
+    break;
+    default:
+    x += margin[0]
+    break;
+  }
+  switch(aligny){
+    case "Top":
+    y = (height/2.83465) - y - margin[2]
+    break;
+    case "Center":
+    y += (height - fontSize)/(2*2.83465)
+    break;
+    case "Bottom":
+    y += margin[3] - fontSize/2.83465
+    break;
+    default:
+    y = (height/2.83465) - y - margin[2]
+    break;
+  }
+  if(!header){
+    y -= fontSize/2.83465
+  }
+  cur_page.drawText(text, {
+    x: x,
+    y: y,
+    size: (fontSize/2.83465),
+    font: fontObj,
+    color: PDFLib.rgb(c[0],c[1],c[2]),
+  })
+  //console.log(text,x,y,page)
+}
+
+async function addPage(pdfDoc,font,header=[],hfs=8,width=210,height=297,margin=[5,5,5,5]){
+  var page = pdfDoc.addPage([width,height])
+  var pages = await pdfDoc.getPages()
+  page.margin=margin
+  page.scale(2.83465, 2.83465);
+  const headerFont = 3
+  headerLeft = header.shift()
+  headerRight = header.pop()
+  //header.reverse()
+  await writeText(pdfDoc,font,headerLeft,0,0,hfs,"Left","Top",true)
+  for(i=0;i<header.length;i++){
+    await writeText(pdfDoc,font,header[i],0,((hfs/2.83465)+1)*i,hfs,"Center","Top",true)
+  }
+  headerBottomPoint = ((hfs/2.83465)+1)*i
+  await writeText(pdfDoc,font,headerRight,0,0,hfs,"Right","Top",true)
+  await writeText(pdfDoc,font,"Page "+pages.length,0,0,hfs,"Center","Bottom", true)
+  await writeText(pdfDoc,font,"Date Printed: "+new Date().toLocaleString() ,0,0,hfs,"Right","Bottom", true)
+  return [pdfDoc,font,page]
+}
+
+async function initPdf(width=210, height=297, margin=[10,10,10,10], defaultFont=PDFLib.StandardFonts.Helvetica, boldFont=PDFLib.StandardFonts.HelveticaBold, boldobliqueFont=PDFLib.StandardFonts.HelveticaBoldOblique) {
+  pdfDoc = await PDFLib.PDFDocument.create()
+  pdfDoc.setTitle(document.getElementById("suggested-title").value)
+  pdfDoc.setCreator("Edward Sia Hock Nung")
+  pdfDoc.setAuthor("Edward Sia Hock Nung")
+  pdfDoc.setProducer("Edward Sia Hock Nung")
+  font = await pdfDoc.embedFont(defaultFont)
+  font_bold = await pdfDoc.embedFont(boldFont)
+  font_bold_oblique = await pdfDoc.embedFont(boldobliqueFont)
+  return [pdfDoc, font]
+}
+
+async function writeReport(data){
+  document.getElementById("btn-lt").disabled=true
+  document.getElementById("btn-gr").disabled=true
+  document.getElementById("btn-dl").disabled=true
+  search=[
+    ["Gender",["M","F"],["he","she"]],
+    ["LV MASSd Index (ASE)",[0,0],["normal","increased"]],
+    ["LVIDd",[0,0],["normal","increased"]],
+    ["EF (Teich)",[40,100],["normal","increased"]],
+    ["EF4 (MOD)",[40,100],["normal","increased"]],
+    ["MV E/A",[1,Infinity],["normal","increased"]],
+    ["E/E'",[7,Infinity],["normal","increased"]],
+    ["LAVI4 (MOD)",[0,0],["normal","increased"]],
+    ["Ao Diam",[0,0],["normal","increased"]],
+    ["LA Diam",[0,0],["normal","increased"]],
+    ["TAPSE",[0,0],["normal","increased"]],
+    ["RV FAC",[0,0],["normal","increased"]],
+    ["GLPS_Avg(Inner)",[-20,-30],["normal","increased"]],
+    ["TR PPG",[0,0],["normal","increased"]],
+    ["RAA4s",[0,0],["normal","increased"]],
+    ["RV EDA",[0,0],["normal","increased"]],
+  ]
+  conditions=[
+    ["LV hypertrophy",[],[]],
+  ]
+  strain_avg = ""
+  strain_locs = ""
+  found_vals={}
+    //we need to get a handle on the canvas so we can get their dataURI
+  //handle ocr for 2d/3d strain echo
+  for(let tidx=0;tidx<pageStrainData.length;tidx++){
+    pageStrainData[tidx][1] = await imageToText(pageStrainData[tidx][1])
+    if(pageStrainData[tidx][1].match("Long. Strain Inner / Peak Systolic") == null){
+      threedee = await imageToText(cropCanvas(document.querySelectorAll("canvas")[pageStrainData[tidx][0]],0.704,0.907,0.065,0.0881))
+      threedee = threedee.split(/\n+/)
+      threedee = {"EDV":threedee[0],
+                "ESV":threedee[1],
+                "EF":threedee[2],
+                "LV MASS":threedee[3]
+               }
+    }else{
+      twodee = await imageToText(cropCanvas(document.querySelectorAll("canvas")[pageStrainData[tidx][0]],0.906,0.609,0.094,0.391))
+      twodee = twodee.split(/\n+/)
+      twodee = {"GLPS_A3C":twodee[0],
+                "GLPS_A4C":twodee[1],
+                "GLPS_A2C":twodee[2],
+                "GLPS_Avg":twodee[3],
+                "ES":twodee[4],
+                "AVC":twodee[5],
+                "HR_A3C":twodee[6],
+                "HR_ERROR":twodee[7],
+                "EDV":twodee[8],
+                "ESV":twodee[9],
+                "EF":twodee[10],
+                "LVLd Diff":twodee[11],
+                "LVLs Diff":twodee[12]
+               }
+      strain_locs = [
+        [0.66052,0.61925],[0.73239,0.68000],[0.73239,0.78125],[0.66052,0.84250],[0.58500,0.78125],[0.58500,0.68000],
+        [0.66052,0.6625],[0.70153,0.7],[0.70153,0.76350],[0.66052,0.8],[0.62053,0.76350],[0.62053,0.7],
+        [0.66052,0.70725],[0.66006,0.79705],[0.66052,0.758],[0.65850,0.79705]
+      ]
+      var im_dim = [0.024,0.028]
+      for(let spos=0;spos<strain_locs.length;spos++){
+        strain_locs[spos] = await imageToText(cropCanvas(document.querySelectorAll("canvas")[pageStrainData[tidx][0]],strain_locs[spos][0],strain_locs[spos][1],im_dim[0],im_dim[1]))
+        strain_locs[spos] = parseInt(strain_locs[spos].replace(/\D+/g,""))
+      }
+      strain_avg = {}
+      strain_avg.apical = avg([strain_locs[12],strain_locs[13],strain_locs[14],strain_locs[15]])
+      strain_avg.mid = avg([strain_locs[6],strain_locs[7],strain_locs[8],strain_locs[9],strain_locs[10],strain_locs[11]])
+      strain_avg.basal = avg([strain_locs[0],strain_locs[1],strain_locs[2],strain_locs[3],strain_locs[4],strain_locs[5]])
+      strain_avg.nonapical = avg([strain_avg.mid,strain_avg.basal])
+      strain_avg.segment = [
+        avg([strain_locs[0],strain_locs[6],strain_locs[12]]),
+        avg([strain_locs[1],strain_locs[7],strain_locs[13]]),
+        avg([strain_locs[2],strain_locs[8],strain_locs[13]]),
+        avg([strain_locs[3],strain_locs[9],strain_locs[14]]),
+        avg([strain_locs[4],strain_locs[10],strain_locs[15]]),
+        avg([strain_locs[5],strain_locs[11],strain_locs[15]])
+      ]
+      strain_avg.segment_names = [
+        "anterior","lateral","posterior","inferior","septal","anteroseptal"
+      ]
+      strain_avg.watershed = [
+        avg([strain_locs[0],strain_locs[4],strain_locs[5],strain_locs[6],strain_locs[10],strain_locs[11],strain_locs[12],strain_locs[13],strain_locs[14],strain_locs[15]]),
+        avg([strain_locs[2],strain_locs[3],strain_locs[4],strain_locs[9],strain_locs[14]]),
+        avg([strain_locs[1],strain_locs[2],strain_locs[3],strain_locs[7],strain_locs[8],strain_locs[9]]),
+      ]
+      strain_avg.watershed_names = [
+        "LAD","RCA","LCX"
+      ]
+    }
+  }
+  for(i=0;i<search.length;i++){
+    qpos=pageTextData.findIndex(x=>x[1]==search[i][0])
+    if(qpos>=0){
+      if(typeof(pageTextData[qpos][2]) == "number"){
+        found_vals[search[i][0]]=Math.round(pageTextData[qpos][2]*10)/10
+      }else{
+        found_vals[search[i][0]]=parseFloat(pageTextData[qpos][2])
+      }
+    }
+  }
+  var strain_text= ["increased","consistent with normal left ventricular myocardial function"]
+  if(found_vals["GLPS_Avg(Inner)"] >= -30){
+    strain_text[0] = "normal"
+    if(found_vals["GLPS_Avg(Inner)"] >= -20){
+      strain_text[0] = "globally reduced"
+      strain_text[1] = "consistent with a mildly abnormal left ventricular myocardial function which could be due to myocardial fibrosis and/or ischaemia"
+    }
+  }
+  var twodee_text = [". ",""]
+  if(typeof(twodee)=="object"){
+    twodee_text[0] = " and "+twodee['EF']+" (Biplane Disk). "
+  }
+  if(typeof(strain_avg)=="object"){
+    if(strain_avg.apical > 20 && (strain_avg.nonapical < 10 || strain_avg.basal < 10)){
+      twodee_text[1] += " There is impaired longitudinal strain in the basal and mid regions with preserved apical longitudinal strain suggestive of cardiac amyloidosis."
+    }
+    if(strain_avg.apical < 15 && strain_avg.nonapical > 20){
+      twodee_text[1] += " There is impaired longitudinal strain in the apical regions with preserved longitudinal strain elsewhere suggestive of apical HOCM."
+    }
+    var affected_regions = [[],[]]
+    for(var areg=0;areg<strain_avg.segment.length;areg++){
+      if(strain_avg.segment[areg]<15){
+        affected_regions[0].push(strain_avg.segment_names[areg])
+      }
+    }
+    for(var areg=0;areg<strain_avg.watershed.length;areg++){
+      if(strain_avg.watershed[areg]<15){
+        affected_regions[1].push(strain_avg.watershed_names[areg])
+      }
+    }
+    if(affected_regions[0].length > 0){
+      twodee_text[1] += " There is reduced regional peak global longitudinal inner strain (GLS) over the " +joinAnd(affected_regions[0])+ " region"
+      if(affected_regions[0].length == 1){twodee_text[1] +="s"}
+      if(affected_regions[1].length > 0){
+        twodee_text[1] += " suggestive of ischemia over the " +joinAnd(affected_regions[1])+ " territor"
+        if(affected_regions[1].length == 1){twodee_text[1] +="y."}else{twodee_text[1] +="ies."}
+      }else{
+        twodee_text[1] += ". "
+      }
+    }
+  }
+  var threedee_text = [""]
+  if(typeof(threedee)=="object"){
+    threedee_text[0] = "The ejection fraction obtained using 3D echocardiography is "+threedee['EF']+". "
+  }
+  var rv_fac = ""
+  if(typeof(found_vals["RV FAC"])!== "undefined"){
+    rv_fac = " and the right ventricular fractional area change is"
+    if(found_vals["RV FAC"]<32){
+      rv_fac += " reduced"
+    }else{
+      if(found_vals["RV FAC"]>60){
+        rv_fac += " increased"
+      }else{
+        rv_fac += " normal"
+      }
+    }
+    rv_fac += (' at '+found_vals["RV FAC"]+'%')
+  }
+  var pulm_hpt = ""
+  if(typeof(found_vals["TR PPG"])!== "undefined"){
+    pulm_hpt = `\n\nThere is`+(parseFloat(found_vals["TR PPG"])<17.5?" no":"")+` pulmonary hypertension as the estimated pulmonary arterial pressure is `+(parseFloat(found_vals["TR PPG"])+10)+` mmHg.`
+  }
+  //console.log(found_vals)
+  found_conditions=[]
+  debug_text = `The patient has a background of hypertension since , dyslipidaemia since and diabetes since . `+(found_vals["Gender"]=="M"?"He":"She")+` is now complaining of having chest pain and shortness of breath.
+
+The left ventricle is`+((found_vals["LV MASSd Index (ASE)"]<=95 || (found_vals["LV MASSd Index (ASE)"]<=115 && found_vals["Gender"]=="M"))?" not":"")+` hypertrophied and it is`+((found_vals["LVIDd"]<=53 || (found_vals["LVIDd"]<=59 && found_vals["Gender"]=="M"))?" not":"")+` enlarged. The LV mass (diastolic) index is `+found_vals["LV MASSd Index (ASE)"]+` g/m2. The LVIDd is `+found_vals["LVIDd"]+` mm. The LV ejection fraction is `+((found_vals["EF (Teich)"]>=40 && found_vals["EF (Teich)"]>=40 && found_vals["EF4 (MOD)"]>=40)?"normal":"reduced")+` based on different measurement methodologies namely `+found_vals["EF (Teich)"]+`% (LV Teichnoic), `+found_vals["EF4 (MOD)"]+`% (Modified 4C Simpson)`+ twodee_text[0] + threedee_text[0] + `There is no LV diastolic dysfunction. The E/A is`+((found_vals["MV E/A"]>0.9 && found_vals["MV E/A"]< 1.1)?" borderline":"")+` `+(found_vals["MV E/A"]<1?"ab":"")+`normal at `+found_vals["MV E/A"]+((found_vals["MV E/A"]<1 ^ found_vals["E/E'"]>8)?" but":" and")+` the E/E' is`+(found_vals["E/E'"]<8?" not":"")+` elevated at `+found_vals["E/E'"]+`. The left atrial volume index is `+(found_vals["LAVI4 (MOD)"]<28?"normal":"increased")+` at `+found_vals["LAVI4 (MOD)"]+` ml/m2.
+
+There is no intracardiac valve abnormality. There is trivial mild moderate severe mitral aortic tricuspid pulmonary regurgitation seen. There is no calcification of the mitral annulus. The aortic valve is tricuspid and it is not calcified. The left atrium diameter is`+(found_vals["LA Diam"]<40?" not":"")+` enlarged (`+found_vals["LA Diam"]+` mm). The aortic root diameter is `+(found_vals["Ao Diam"]<40?"normal":"increased")+` at `+found_vals["Ao Diam"]+` mm. The ascending aorta appears normal. The right atrium is `+(found_vals["RAA4s"]<22?"normal in size":"enlarged")+` (right atrial area is `+found_vals["RAA4s"]+` cm2). The right ventricle is also  `+(found_vals["RV EDA"]<23.4?"normal in size":"enlarged")+`  (right ventricle diastolic area is `+found_vals["RV EDA"]+` cm2). The right ventricle TAPSE is `+(found_vals["TAPSE"]<16?"reduced":"normal")+` at `+found_vals["TAPSE"]+` mm`+rv_fac+`. The pericardium is normal with no pericardial effusion. There is no intracardiac mass or clot seen in this transthoracic echocardiogram.`+pulm_hpt+`
+
+The 2D left ventricular average global longitudinal inner strain (GLS) is `+strain_text[0]+` at `+found_vals["GLPS_Avg(Inner)"]+`% `+strain_text[1]+`.`+twodee_text[1]+` The 3D left ventricular myocardial strain measurement using area change ratio is also abnormal.
+
+There is reduced regional peak global longitudinal inner strain (GLS) over the anterior, anteroseptal, septal, inferior, posterior and lateral segments suggestive of ischaemia over the LAD, LCX and RCA territories. 
+There is also significant regional myocardial dyssynchrony seen in the 2D and 3D myocardial strain.
+
+CONCLUSION:
+Normal echocardiogram.
+There is no hypertrophy of the left ventricle and no LV diastolic dysfunction seen. The left ventricle ejection fraction is normal and the left ventricular 2D average peak global longitudinal inner strain (GLS) is also normal.  The right ventricle function is normal.
+
+There is mild hypertrophy of the left ventricle with mild LV diastolic dysfunction which could be due to hypertension. The left ventricle ejection fraction is normal and the left ventricular 2D average peak global longitudinal inner strain (GLS) is also normal. The 3D left ventricular myocardial strain measurement using area change ratio is also normal.  The right ventricle function is normal.
+
+There is significant hypertrophy of the left ventricle with LV diastolic dysfunction and dilated left atrium which is likely to be due to hypertension. The left ventricular ejection fraction is normal but the left ventricular 2D average peak global longitudinal inner strain (GLS) is significantly reduced. The 3D left ventricular myocardial strain measurement using area change ratio is also abnormal.
+The right ventricle function is normal. The above findings are consistent with heart failure with preserved ejection fraction.
+
+There is significant hypertrophy and dilatation of the left ventricle with a grossly elevated left ventricle filling pressure and a grossly dilated left atrium. The left ventricle ejection fraction is reduced. The left ventricular 2D average peak global longitudinal inner strain (GLS) and the 3D area change ratio (ACR) are grossly reduced with significant regional myocardial dyssynchrony seen.  The right atrium and right ventricle are enlarged with a reduced right ventricle function. These findings are consistent with dilated cardiomyopathy and heart failure with reduced ejection fraction.
+
+
+
+
+
+
+Echocardiogram performed and reported by Dr. Edward Sia Hock Nung. FACC, FRCP(UK), FNHAM`
+  document.getElementById("echo-report").value=debug_text
+  document.getElementById("btn-lt").disabled=false
+  document.getElementById("btn-gr").disabled=false
+  document.getElementById("btn-dl").disabled=false
+  return debug_text
+}
+
+async function getPageText(pageNum, pdfDocumentInstance){
+  const pdfPage = await pdfDocumentInstance.getPage(pageNum);
+ref_pages.push(pdfPage)
+  pdfPage.getTextContent().then(function(pagetext){
+    text=pagetext.items
+    last_y = text[0].transform[5]
+    last_x = text[0].transform[4]
+    last_fs = text[0].transform[0]
+    last_w = text[0].width
+    values=[]
+    line=[last_fs,""]
+    for(i=0;i<text.length;i++){
+      s = text[i].str
+      w = text[i].width
+      t = text[i].transform
+      if(typeof(s)!== "undefined" && s.length > 0 && s != " "){
+        center = Math.abs((w-last_w)/(2*(t[4] - last_x)))
+        if(t[5] == last_y ||
+          (t[5] < last_y && t[0] == last_fs 
+            && (t[4] == last_x || (center >= 0.98 && center <= 1.02)  ))){
+          if(t[4] > last_x){
+            line.push(s)
+          }else if(t[4]==last_x){
+            line[line.length-1] += (" "+s)
+          }else{
+            line.push(s)
+          }
+        }else{
+          last_y=t[5]
+          values.push(line)
+          line=[t[0],s]
+        }
+        last_x=t[4]
+        last_fs = t[0]
+        last_w = w
+      }
+    }
+    pageTextData[pageNum-1] = values
+  })
+}
+
+const vtoop = (value)=>{
+  return Object.keys(pdfjsLib.OPS).find(key => pdfjsLib.OPS[key] === value)
+}
+
+async function getPageImages(pageNum, pdfDocumentInstance) {
+  try {
+    const pdfPage = await pdfDocumentInstance.getPage(pageNum);
+    var operatorList = await pdfPage.getOperatorList();
+    var pageDim = pdfPage.view
+    const validObjectTypes = [
+      pdfjsLib.OPS.paintImageXObject, // 85
+      pdfjsLib.OPS.paintImageXObjectRepeat, // 88
+      pdfjsLib.OPS.paintJpegXObject //82
+    ];
+//pagedescr[pageNum-1]=[]
+    operatorList.fnArray
+      .forEach((element, idx) => {
+//pagedescr[pageNum-1].push([idx,vtoop(operatorList.fnArray[idx]),operatorList.argsArray[idx]])
+      if(validObjectTypes.includes(element)) {
+//interest.push([pageNum-1,idx])
+        const imageName = operatorList.argsArray[idx][0];
+        pdfPage.objs.get(imageName, async (image) => {
+          var imageTransform = [0,0]
+          var imageScaleFac = 1
+          // Uint8ClampedArray
+          const imageUnit8Array = image.data;
+          const imageWidth = image.width;
+          const imageHeight = image.height;
+          if(operatorList.fnArray[idx-1]==1 && operatorList.fnArray[idx-2]==12){ //find transforms that depend on this
+            imageTransform = [operatorList.argsArray[idx-2][0]/pageDim[2],
+                             -operatorList.argsArray[idx-2][3]/pageDim[3]]
+            imageScaleFac = ((operatorList.argsArray[idx-2][0]/imageWidth)
+                            -(operatorList.argsArray[idx-2][3]/imageHeight))/2
+          }
+
+          // imageUnit8Array contains only RGB need add alphaChannel
+          const imageUint8ArrayWithAlphaChanel = addAlphaChannelToUnit8ClampedArray(imageUnit8Array, imageWidth, imageHeight);
+
+          //const imageData = new ImageData(imageUint8ArrayWithAlphaChanel, imageWidth, imageHeight);
+          const imageData = new ImageData(imageUint8ArrayWithAlphaChanel, imageWidth, imageHeight);
+          pageImageData.push([imageData, imageName, [imageWidth, imageHeight], imageTransform,imageScaleFac])
+
+        });
+      }
+    });
+  } catch (error) {
+    console.log(error);
+  }
+}
+
+const onLoadFile = async event => {
+  try {
+    // turn array buffer into typed array
+    const typedArray = new Uint8Array(event.target.result);
+
+    const loadingPdfDocument = pdfjsLib.getDocument(typedArray);
+    const pdfDocumentInstance = await loadingPdfDocument.promise;
+
+    const totalNumPages = pdfDocumentInstance.numPages;
+    const pagesPromises = [];
+
+    for (let currentPage = 1; currentPage <= totalNumPages; currentPage += 1) {
+      pagesPromises.push(getPageImages(currentPage, pdfDocumentInstance));
+      pagesPromises.push(getPageText(currentPage, pdfDocumentInstance));
+    }
+
+    const pagesData = await Promise.all(pagesPromises).then(
+      (v)=>{
+        document.getElementById("echo-report").value=""
+        text_tmp = [].concat.apply([],pageTextData)
+        pageTextData = [text_tmp[0]]
+        for(i=1;i<text_tmp.length;i++){
+          if(text_tmp[i].join() != pageTextData[0].join()){
+            pageTextData.push(text_tmp[i])
+          }
+        }
+        for(i=(pageTextData.findIndex(x=>x[1]=="Comment"))+1 ;i<pageTextData.length;i++){
+          document.getElementById("echo-report").value+=pageTextData[i][1]+" "
+        }
+        //today=new Date()
+        //today="-"+today.getDate()+["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][today.getMonth()]+today.getUTCFullYear()
+        document.getElementById("suggested-title").value=pageTextData[0].slice(2).join("-").replace(/(Exam Date \: |\/)/g,"").replace(/ /g,"-").replace(/@-([A-Z]+-)+(?=MRN)/g,"")
+        genReport(pageImageData,pageTextData)
+        }
+    );
+  } catch (error) {
+    console.log(error);
+  }
+};
+
+document.getElementById('file-pdf').addEventListener('change', event => {
+  pageTextData = []
+  pageImageData = []
+  pageStrainData = []
+  threedee = ""
+  twodee = ""
+  //Enable buttons on first run
+  document.getElementById("btn-lt").disabled=true
+  document.getElementById("btn-gr").disabled=true
+  document.getElementById("btn-dl").disabled=true
+  const file = event.target.files[0];
+  if (file.type !== 'application/pdf') {
+    alert(`File ${file.name} is not a PDF file type`);
+    return;
+  }
+
+  const fileReader = new FileReader();
+  fileReader.onload = onLoadFile; //entry point
+  fileReader.readAsArrayBuffer(file);
+});
+
+/*
+Basic interpretation:
+Observe file-pdf. On change, if file is a pdf, initialise var fileReader as a file
+reader that reads the pdf as an array buffer. When it loads, run onLoadFile(). Set
+button states as necessary. 
+
+onLoadFile(event)
+parse the event as a typedArray and use pdfjsLib to read it. pdfDocumentInstance =
+the document, as loaded with pdfjsLib. Set totalNumPages from this. Initialise an
+array of promises corresponding to getPageImages/getPageText of each page of the
+pdf document instance.
+
+When all promises complete, blank echo-report.
+Flatten global array pageTextData into text_tmp.
+Write text_tmp back into pageTextData, stripping page headers, as shown from the 
+contents of text_tmp[0].
+Then, find where the comment section is, and merge all text after this point, and
+dump the result into echo-report.
+Generates suggested title, and then run genReport on the global vars pageTextData
+and pageImageData
+
+getPageImages(pageNum, pdfDocumentInstance)
+Get pdfPage corresponding to said page in the document instance. Get operatorList
+corresponding to the operator lists for that page. Get pageDim = page dimensions.
+For each operator, look for the types corresponding to image draw functions. Then
+find the image data referenced in pdfpage.objs. We assume that preceding operator
+gives scaling info, so we use it to retrieve transform and scale params. We then 
+add an alpha channel and push ihe imageData to pageImageData
+
+getPageText(pageNum, pdfDocumentInstance)
+Get pdfPage corresponding to said page in the document instance. getTextContent()
+then on the result, find pagetext.items. We find the text positions, and find out
+whether to merge the text t the previous item or push it to a new item based on 
+heuristics. Everything is dumped into the values array which is passed to the var
+pageTextData in the correct position.
+
+genReport(image,text)
+First, sort the image data by filename (ie entry[1]). 
+*/
+  </script>
+  </body>
+  </html>

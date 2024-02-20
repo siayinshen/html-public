@@ -1,0 +1,1543 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=">
+<title>CTC Audit Generator</title>
+<style>
+.debug{
+  border: 2px solid black
+}
+a{
+  text-decoration: none;
+}
+body{
+  background: #f3f3f3
+}
+input[type=number]{
+  width: 4em;
+  text-align: center;
+}
+.sec-header{
+  font-weight: bold;
+  font-size: 1.2em;
+}
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Old versions of Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently
+                                  supported by Chrome, Edge, Opera and Firefox */
+}
+table {
+  border-collapse: collapse;
+}
+td{
+  border: 2px solid brown;
+  text-align: center;
+  padding: 0;
+  padding: 0.2em 1em;
+}
+.ts{
+  border: none;
+}
+.th{
+  background:rgba(150,75,0,0.5);
+  font-weight: bold;
+}
+textarea{
+  min-width: 90%;
+  max-width: 90%;
+  min-height: 10em;
+}
+svg>g>rect{
+  cursor:pointer;
+}
+pre,textarea,input{
+  font-family: sans-serif;
+}
+pre{
+  width: 100%;
+  overflow-x: scroll;
+  padding-bottom: 1em;  
+}
+.result-holder, .data-holder{
+  display: none;
+  flex-wrap: wrap;
+  width: 90vw;
+  margin: 1rem 0;
+}
+.result-holder >p{
+  width:100%
+}
+
+.toolbar{
+  width: 100%;
+  display: flex;
+  border-bottom: 2px solid black;
+}
+.toolbar-option{
+  cursor: pointer;
+  border: 2px solid black;
+  border-radius:  0 0.75rem 0 0;
+  padding: 0.25rem 1rem 0.25rem 0.5rem;
+  margin-right: -2px;
+  margin-bottom: -2px;
+}
+.toolbar-option:hover, .toolbar-selected{
+  background: #C4A484
+}
+.category{
+  position: relative;
+  border-radius: 1rem;
+  border: 2px solid black;
+  padding: 0.5rem;
+  margin-left: 0.5rem;
+  margin-top: 1rem;
+  width: calc( 50% - 2rem );
+}
+@media (orientation: portrait) {
+  .category {
+    width: calc( 100% - 2rem );
+  }
+}
+
+.category-title{
+  position: absolute;
+  left: 1.4rem;
+  top: -0.6rem;
+  background: #F3F3F3;
+  padding: 0 0.5rem;
+}
+.download-button{
+  font-size: 2rem;
+}
+.display-holder{
+  margin: 1rem 0.5rem;
+}
+canvas{
+  width: 100%;
+}
+</style>
+</head>
+<body>
+  <h1 class="noselect">CT colonoscopy audit tool</h1>
+  <p><a href="../">Click here to go back to the report generator.</a></p>
+  <form class="noselect">
+    <p>Enter a list of scan codes here (one per line):</p>
+    <textarea id="audit_codes" placeholder="CTCA|...|ACTC&#10;...&#10;CTCA|...|ACTC"></textarea><br>
+    <input type="button" value="Submit" id="btn-submit"></input>
+    <input type="reset" value="Clear All" onclick="window.location.reload()"></input>
+  </form>
+  <div class="result-holder noselect">
+    <div class="toolbar">
+      <div class="toolbar-option toolbar-selected" id="toolbar-day">By Day</div>
+      <div class="toolbar-option" id="toolbar-month">By Month</div>
+    </div>
+    <p>All graphs show the average, and when possible, the maximum, minimum and 95% confidence intervals.</p>
+    <div class="category">
+      <span class="category-title">ADEQUACY</span>
+      <canvas class="graph" id="graph-adequacy"></canvas><br>
+      <span class="category-info"></span><br>
+    </div>
+    <div class="category">
+      <span class="category-title">6mm PIR</span>
+      <canvas class="graph" id="graph-6pir"></canvas><br>
+      <span class="category-info"></span><br>
+    </div>
+    <div class="category">
+      <span class="category-title">INTERPRETATION TIME</span>
+      <canvas class="graph" id="graph-interpret"></canvas><br>
+      <span class="category-info"></span><br>
+    </div>
+    <div class="category">
+      <span class="category-title">3<sup>rd</sup>/4<sup>th</sup> POSITION ACQUISITION RATE</span>
+      <canvas class="graph" id="graph-3par"></canvas><br>
+      <span class="category-info"></span><br>
+    </div>
+  </div>
+  <div class="data-holder">
+    <div class="toolbar noselect">
+      <div class="toolbar-option toolbar-selected" id="toolbar-table">Table</div>
+      <div class="toolbar-option" id="toolbar-csv">CSV</div>
+    </div>
+    <div class="display-holder">
+    
+    </div>
+  </div>
+  <script>
+    //string to uint8array
+    function stu(s) {
+      let res = []
+      for(let i=0;i<s.length;i++){
+        res = [...res,...ctu8(s[i])]
+      }
+      return res;
+    }
+    //uint8array to string
+    function uts(ua) {
+      let str=""
+      let ptr=0
+      while(ptr < ua.length){
+        let cpt="" //binary rep of codepoint we are trying to do
+        let prefix=ua[ptr].toString(2) //read one byte and get ready to read next byte
+        ptr++ 
+        if(prefix[0] =="0" || prefix.length <= 7){//if single byte...
+          cpt = prefix
+        }else{//if multibyte...
+          while(prefix[0] =="1" && prefix[1] =="1"){ //off by one
+            prefix=prefix.slice(1) //whittle one bit off
+            cpt += ua[ptr].toString(2).slice(2) //append tail to cpt
+            ptr++
+          }
+          cpt = prefix.slice(2) +cpt //readd whittled prefix byte with last leading bit removed
+        }
+        str += String.fromCodePoint(parseInt(cpt,2))
+      }
+      return str
+    }
+    //encode unicode codepoints as string
+    //first byte prefix is 0, 110,1110,11110 for 1 to 4 bytes respectively
+    //subsequent bytes are prefixed by 10
+    function ctu8(char){
+      let cpt = char.codePointAt(0).toString(2) //convert codepoint to binary
+      let strea=[]
+      while (cpt[0]==0){cpt=cpt.slice(1)} //remove leading ones
+      let prefix="10"  //ones to add to prefix
+      if (cpt.length<=7){//single byte unicode
+        strea=[parseInt(cpt,2)];
+      }else{
+        while (cpt.length>6){
+          strea.push(parseInt("10"+cpt.slice(-6),2)); //add continuation byte to stream
+          cpt=cpt.slice(0,-6);
+          prefix = "1"+prefix
+        }
+        //does prefix fit? if not, emit another byte 
+        if(prefix.length+cpt.length>8){
+          while((cpt.length+2)%8!=0){cpt="0"+cpt} //pad remaining cpt
+          strea.push(parseInt("10"+cpt,2));
+          prefix = "1"+prefix
+          //blank out cpt
+          cpt = "0"
+        }
+        //final byte
+        while((cpt.length+prefix.length)%8!=0){cpt="0"+cpt} //pad remaining cpt
+        strea.push(parseInt(prefix+cpt,2));
+        strea.reverse()
+      }
+      return new Uint8Array([...strea])
+    }
+    //convert utf8 encoded uint8array to char
+    function u8toc(stream){
+      if(stream.length==1){
+        return stream[0]
+      }else{
+        let number = ""
+        for(let i=0;i<stream.length;i++){
+          if(i==0){
+            number += stream[i].toString(2).slice(stream.length+2)  //remove no of bits in prefix
+          }else{
+            number += stream[i].toString(2).slice(2) //remove top 2 bits from subsequent bytes
+          }
+        }
+        return String.fromCodePoint(parseInt(number,2))
+      }
+    }
+/*
+    //arraybuffer to b64
+    function t64(bin){
+      let ui8 = new Uint8Array(bin)
+      return btoa(String.fromCodePoint(...ui8)).replace("=","");
+      //return btoa(new Uint8Array(bin).reduce((x, byte) => x + String.fromCodePoint(byte), '')).replace("=","");
+    }
+    //b64 to arraybuffer
+    function f64(txt){
+      let ui8 = Uint8Array.from(atob(txt), (m) => m.codePointAt(0));
+      //let ui8 = Uint8Array.from(atob(txt), c => c.codePointAt(0))
+      return ui8.buffer;
+    }
+*/
+    //zero pad to left
+    function pad(n, width) {n = n + '';return n.length >= width ? n : new Array(width - n.length + 1).join(0) + n}
+    
+    //base64 to arraybuffer
+    function f64(input){
+      let mapping = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+      let stream = "" //binary stream
+      let output = []
+      let discard_bits = 0
+      //remove padding and keep track of bits to remove
+      while(input.slice(-1)=="="){
+        input = input.substr(0,input.length-1)
+        discard_bits += 2
+      }
+      input = input.replace(/(\!)/g,"AAA") //replace groups of 3A's with special char
+      input = input.replace(/(\?)/g,"AA") //replace groups of 2A's with special char
+      for (let i = 0; i < input.length; i++) {
+        stream += pad((mapping.indexOf(input[i]) % 64).toString(2),6); //we add 6 bits at a time
+      }
+      stream = stream.substr(0,stream.length-Math.min(4,discard_bits)) //remove discard bits
+      stream = stream.substr(0,stream.length-stream.length%8) //trim enough padding bits to 8 bit align
+      for (let i = 0; i < stream.length; i+=8){
+        output.push(parseInt(stream.slice(i,i+8),2)) //read byte at a time
+      }
+      let ui8 = new Uint8Array([...output])
+      return ui8.buffer;
+    }
+    //arraybuffer to base64
+    function t64(bin){
+      let ui8 = new Uint8Array(bin)
+      let mapping = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+      let output = ""
+      let stream = ""
+      //convert input to binary stream
+      for (let i = 0; i < ui8.length; i++) {
+        stream += pad(ui8[i].toString(2),8); //push arraybuffer to bitstream 8 bytes at a time
+      }
+      while(stream.length%6!=0){stream+="0"} //pad stream to 6 bit align
+      for (let i = 0; i < stream.length; i+=6) {
+        output += mapping[parseInt(stream.slice(i,i+6),2)]; //push 6 bit code point to output
+      }
+      //while(output.length%4!=0){output+="="} //pad output to 4 character code point
+      output = output.replace(/(A){3}/g,"!") //replace groups of 3A's with special char
+      output = output.replace(/(A){2}/g,"?") //replace groups of 2A's with special char
+      return output;
+    }
+    function checkEndian() {
+      let arrayBuffer = new ArrayBuffer(2);
+      let uint8Array = new Uint8Array(arrayBuffer);
+      let uint16array = new Uint16Array(arrayBuffer);
+      uint8Array[0] = 0xAA; // set first byte
+      uint8Array[1] = 0xBB; // set second byte
+      if(uint16array[0] === 0xBBAA) return 0; //little_endian
+      if(uint16array[0] === 0xAABB) return 1; //big_endian
+      else{return -1};
+    }
+    function arrToText(arr_orig){
+      if(arr_orig.length<=0){return ""}
+      if(arr_orig.length==1){return ""+arr_orig[0]}
+      let arr = [...arr_orig] //copy array or else we will change supplied array
+      let tmp = arr.pop()
+      arr[arr.length-1]+= (" and " + tmp)
+      return arr.join(", ")
+    }
+    class ScanAdequacy{
+      constructor(){
+        this.faecal_tag=true
+        this.insufflation=true
+        this.completely_imaged=true
+        this.motion_artifact=[0,0,0,0] //array of motion artifacts in each view
+        this.getAdequacy = function(){
+          let ma = [...this.motion_artifact] //shallow copy to prevent splatting
+          return (this.faecal_tag && this.insufflation && this.completely_imaged && ma.reduce((acc,x)=>Math.max(acc,x))<=1)
+        }
+        // v1 struct [2]
+        // byte 0 (int8) 0xFF - version = 0xFF
+        // byte 1, bits: 0=faecal tag, 1=insufflation, 2=completely_imaged, [3-7]=reserved
+        // byte 2, bits: [0-1] motion_artifact[0] [2-3] motion_artifact[1] [4-5] motion_artifact[2] [6-7] motion_artifact[3]
+        this.toBinary=function(){
+          let byteOne = 0
+          let byteTwo = 0
+          if(this.faecal_tag){byteOne+=(1<<0)}
+          if(this.insufflation){byteOne+=(1<<1)}
+          if(this.completely_imaged){byteOne+=(1<<2)}
+          byteTwo += (this.motion_artifact[0]%3)*(1<<0)
+          byteTwo += (this.motion_artifact[1]%3)*(1<<2)
+          byteTwo += (this.motion_artifact[2]%3)*(1<<4)
+          byteTwo += (this.motion_artifact[3]%3)*(1<<6)
+          let res = new ArrayBuffer(3);
+          let ui8 = new Uint8Array(res);
+          ui8[0] = 0xFF - 0 //version 0
+          ui8[1] = byteOne
+          ui8[2] = byteTwo
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          let byteOne = 0
+          let byteTwo = 0
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          let ver = ui8[0]
+          byteOne = ui8[1]
+          byteTwo = ui8[2]
+          switch(ver){
+            case 255:
+              this.faecal_tag = (byteOne & (1<<0))>0
+              this.insufflation = (byteOne & (1<<1))>0
+              this.completely_imaged = (byteOne & (1<<2))>0
+              this.motion_artifact=[0,0,0,0]
+              for(let i=0;i<=3;i++){
+                this.motion_artifact[i] = (byteTwo & ((1<<i) + (1<<(i+1))))>>(i*2)
+              }
+              break;
+            default:
+              console.error("Unsupported version "+(0xFF-ui8[0])+" for adequacy object.")
+              break;
+          }
+          this.updateDocument()
+        }
+        this.updateDocument=function(){
+          // no need
+        }
+        this.toString= function(){
+          let adestr = 
+            "Faecal tagging " + (this.faecal_tag?"":"in") + "adequate.\n" +
+            "Insufflation " + (this.insufflation?"":"in") + "adequate.\n" +
+            "Colon " + (this.completely_imaged?"fully ":"incompletely ") + "imaged.\n" +
+            "Colonic motion artefact - " + 
+            ["none ","minimal ","severe (impairing interpretation) "][this.motion_artifact.reduce((acc,x)=>Math.max(acc,x))] +
+            "on all views."
+          return adestr
+        }
+      }
+    }
+    class ScanTechnique{
+      constructor(){
+        this.intubation_loc=0 //0=rectum, 1=stoma
+        this.operator=null
+        this.oral_contrast=[200,0] // mL of 0=gastrografin
+        this.iv_contrast=false
+        this.buscopan=20 //mg
+        this.positions=[true,true,false,false] //bitmap index into position_names
+        this.balloon_deflated=true
+        this.paired_ct_chest=false
+        this.position_names=["supine","LLD","RLD","prone"]
+        this.listPositions = function(){
+          let res = []
+          for(let i=0;i<this.position_names.length;i++){
+            if(this.positions[i]===true){
+              res.push(this.position_names[i])
+            }
+          }
+          return res
+        }
+        // v1 struct [8+n]
+        // byte 0, (int8) - 0xFF - version = 0xFF
+        // byte 1, bits: [0-1] intubation_loc [2] balloon_deflated [3] paired_ct_chest [4] iv_contrast [5-7] reserved
+        // byte 2, bits: [0] supine? [1] lld? [2] rld? [3] prone? [4-7] reserved
+        // byte 3, (int8) buscopan
+        // byte [4-5], (int16) gastrografin
+        // byte [6-7], (int16) len(operator)
+        // subsequent bytes: operator name [unicode] - not null terminated.
+        this.toBinary=function(){
+          let res = new ArrayBuffer(8);
+          let ui8 = new Uint8Array(res);
+          let ui16 = new Uint16Array(res);
+          let byteOne = 0
+          ui8[0] = 0xFF - 0 //version 0
+          byteOne += (this.intubation_loc%3)*(1<<0)
+          if(this.balloon_deflated){byteOne += (1<<2)}
+          if(this.paired_ct_chest){byteOne += (1<<3)}
+          if(this.iv_contrast){byteOne += (1<<4)}
+          ui8[1] = byteOne
+          let byteTwo = 0
+          for(let p=0;p<this.positions.length;p++){
+            if(this.positions[p]){byteTwo += (1<<p)}
+          }
+          ui8[2] = byteTwo
+          ui8[3] = Math.max(0,parseInt(this.buscopan))
+          ui16[2] = Math.max(0,parseInt(this.oral_contrast[0]))
+          
+          if(this.operator !== null){
+            let str = stu(this.operator)
+            if(str.length >=65525){
+              str= str.slice(0,65525)
+              console.error("Maximum operator name length reached - ignoring any after")
+            }
+            ui16[3] = str.length //set str length
+            ui8 = new Uint8Array([...ui8,...str]) //append string
+            res = ui8.buffer //reform res
+            //ui8 = new Uint8Array(res); //relink ui8 for next step
+          }
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          if(ui8.length%2 == 1){ //pad to 16 bit alignment
+            ui8 = new Uint8Array([...ui8,0])
+            bin = ui8.buffer
+          }
+          let ui16 = new Uint16Array(bin);
+          switch(ui8[0]){
+            case 255:
+              this.intubation_loc = (ui8[1] & 0b11)>>0
+              this.balloon_deflated = (ui8[1] & (1<<2))>0
+              this.paired_ct_chest = (ui8[1] & (1<<3))>0
+              this.iv_contrast = (ui8[1] & (1<<4))>0
+              for(let i=0;i<this.positions.length;i++){
+                this.positions[i] = (ui8[2] & (1<<i))>0
+              }
+              this.buscopan = ui8[3]
+              this.oral_contrast = [ui16[2],0]
+              let strlen = ui16[3]
+              this.operator = null
+              if(strlen>0){
+                this.operator = uts(ui8.slice(8,8+strlen))
+              }
+              break;
+            default:
+              console.error("Unsupported technique version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.updateDocument=function(){
+          // no need
+        }
+        this.toString= function(){
+          return(
+          "Verbal consent and " + ["rectal ","stomal "][this.intubation_loc]+
+          "intubation and insufflation performed by: " + this.operator + ".\n"+
+          "Oral contrast: Total " + this.oral_contrast[0] + "mL " + ["gastrografin"][this.oral_contrast[1]] +".\n"+
+          "IV Contrast: " + (this.iv_contrast?"yes":"no - please note that lack of IV contrast limits the evaluation of solid organs and vasculature") + ".\n\n" +
+          "IV Buscopan: " + (this.buscopan<=0?"none.":this.buscopan + "mg.")+"\n" +
+          "Number of positions: " + this.listPositions().length + ".\n"+ 
+          "Position" + (this.listPositions().length==1?" ":"s ") + arrToText(this.listPositions()) + ".\n" +
+          "Balloon deflated on one view: " + (this.balloon_deflated?"yes":"no") + ".\n" +
+          "CT Chest on the same day: " + (this.paired_ct_chest?"yes":"no") + "."
+          )
+        }
+      }
+    }
+    class Scan{
+      constructor(){
+        this.indication=0 //0=BCSP, 1=symptomatic
+        this.date = new Date()
+        this.startTime = performance.now()
+        this.interpretTime = 0
+        this.adequacy=new ScanAdequacy()
+        this.technique=new ScanTechnique()
+        this.polyps=[]
+        this.appendix=0
+        this.colon_comments=""
+        this.extracolon_code=1 //1=E1,2=E2,3=E3,4=E4, 5=E5
+        this.extracolon_comments=""
+        this.conclusion=""
+        // v1 struct [16]
+        // byte 0, (int8) 0xFF - version = 0xFF
+        // byte 1, (int8) indication
+        // byte 2, (int8) appendix 
+        // byte 3, (int8) extracolon_code 
+        // byte [4-5], (int16) polyp count
+        // byte [6-7], (int16) technique length
+        // byte [8-9], (int16) colon-comment length
+        // byte [10-11], (int16) extracolon comment length
+        // byte [12-13], (int16) conclusion comment length
+        // byte [14-16] adequacy.toBinary [3]
+        // [polyps]
+        // [technique]
+        // colon comment
+        // extracolon comment
+        // conclusion
+        // byte n, (int8) day
+        // byte n+1, (int8) month
+        // byte [n+2-n+3], (int16) year
+        // byte [n+4-n+5], (int16) seconds/2
+        // v2 struct only: byte [n+6 - n+9] (int32) elapsed time
+        this.toBinary = function(){
+          let res = new ArrayBuffer(14)
+          let ui8 = new Uint8Array(res)
+          let ui16 = new Uint16Array(res)
+          let adebin = new Uint8Array(this.adequacy.toBinary())
+          let tecbin = new Uint8Array(this.technique.toBinary())
+          let polbin = new Uint8Array(0)
+          let colcom = stu(this.colon_comments)
+          let ecolcom = stu(this.extracolon_comments)
+          let conc = stu(this.conclusion)
+          let date = new ArrayBuffer(10)
+          let date8 = new Uint8Array(date)
+          let date16 = new Uint16Array(date)
+          let d = new Date()
+          date8[0] = d.getDate()
+          date8[1] = d.getMonth()
+          date16[1] = d.getFullYear()
+          date16[2] = parseInt((d.getUTCHours()*3600+d.getMinutes()*60+d.getSeconds())/2)
+          //misaligned, calculate timestamp implicitly
+          let elapsed = parseInt(this.interpretTime)
+          if(elapsed > 0xFFFFFFFF){ //if >max int, keep at maxint
+            date16[3] = 0xFFFF
+            date16[4] = 0xFFFF
+          }else if(elapsed > 0){ //if negative or NaN, implicitly set to zero
+            date16[3] = elapsed & 0xFFFF
+            date16[4] = (elapsed & 0xFFFF0000) >> 16
+          }
+          if(this.polyps.length >=65535){
+            this.polyps = this.polyps.slice(0,65535)
+            console.error("Maximum polyp count reached - ignoring any after")
+          }
+          if(colcom.length >=65535){
+            colcom = this.colcom.slice(0,65535)
+            console.error("Maximum colcom length reached - ignoring any after")
+          }
+          if(ecolcom.length >=65535){
+            ecolcom = this.ecolcom.slice(0,65535)
+            console.error("Maximum ecolcom length reached - ignoring any after")
+          }
+          if(conc.length >=65535){
+            conc = this.conc.slice(0,65535)
+            console.error("Maximum conc length reached - ignoring any after")
+          }
+          for(let pp=0;pp<this.polyps.length;pp++){
+            let tmp = new Uint8Array(this.polyps[pp].toBinary())
+            polbin=[...polbin,...tmp]
+          }
+          ui8[0] = 0xFF - 1 //version 1
+          ui8[1] = Math.max(0,parseInt(this.indication))
+          ui8[2] = Math.max(0,parseInt(this.appendix))
+          ui8[3] = Math.max(0,parseInt(this.extracolon_code))
+          ui16[2] = Math.min(65535,Math.max(0,parseInt(this.polyps.length)))
+          ui16[3] = Math.max(0,parseInt(tecbin.length))
+          ui16[4] = Math.min(65535,Math.max(0,parseInt(colcom.length)))
+          ui16[5] = Math.min(65535,Math.max(0,parseInt(ecolcom.length)))
+          ui16[6] = Math.min(65535,Math.max(0,parseInt(conc.length)))
+          ui8=new Uint8Array([...ui8,...adebin,...tecbin,...polbin,...colcom,...ecolcom,...conc,...date8])
+          if(checkEndian()==1){//big endian, need to flip order in final assembly
+            console.warn("Big endian system, flipping output")
+            ui8.reverse()
+          }
+          return ui8.buffer
+        }
+        this.fromBinary = function(bin){
+          this.startTime = performance.now() //reset start time
+          let ui8 = new Uint8Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            console.warn("Big endian system, flipping input")
+            ui8.reverse()
+            bin=ui8.buffer
+          }
+          if(ui8.length%2 == 1){ //pad to 16 bit alignment
+            ui8 = new Uint8Array([...ui8,0])
+            bin = ui8.buffer
+          }
+          let ui16 = new Uint16Array(bin);
+          switch(ui8[0]){
+            case 254:
+            case 255:
+              this.indication = ui8[1]
+              this.appendix = ui8[2]
+              this.extracolon_code = ui8[3]
+              //clear extant polyps
+              /*
+              let pCopy = ctc.polyps.map(x=>x.id) //use reference copy to prevent loop from ending early
+              for(let p=0;p<pCopy.length;p++){
+                polypRemove(pCopy[p])
+              }
+              */
+              //init empty array
+              this.polyps = []
+              let adebin = new Uint8Array([ui8[14],ui8[15],ui8[16]])
+              this.adequacy.fromBinary(adebin.buffer)
+              let ptr = 17 //offset into data array we are reading
+              let tecbin = ui8.slice(ptr,ptr+ui16[3]) //return uint8array of length ui16[3] from offset 15
+              this.technique.fromBinary(tecbin.buffer)
+              ptr += ui16[3] //current offset
+              for(let p=0;p<ui16[2];p++){
+                this.polyps[p] = new Polyp()
+                //polypCreate() //creates ui elements and push polyp into array
+                let pbin = ui8.slice(ptr,ptr+16)
+                this.polyps[p].fromBinary(pbin.buffer) //loads polyp with standard values - implicitly will update ui elems
+                ptr += 16
+              }
+              let colcom = ui8.slice(ptr,ptr+ui16[4])
+              this.colon_comments = uts(colcom)
+              ptr += ui16[4]
+              let ecolcom = ui8.slice(ptr,ptr+ui16[5])
+              this.extracolon_comments = uts(ecolcom)
+              ptr += ui16[5]
+              let conc = ui8.slice(ptr,ptr+ui16[6])
+              this.conclusion = uts(conc)
+              ptr += ui16[6]
+              let d = new Date()
+              d.setDate(ui8[ptr])
+              d.setMonth(ui8[ptr+1])
+              d.setYear((ui8[ptr+3])*256+(ui8[ptr+2]))
+              let sec = (ui8[ptr+5]*256+ui8[ptr+4])*2
+              d.setHours(Math.floor(sec/3600))
+              sec -= (Math.floor(sec/3600)*3600)
+              d.setMinutes(Math.floor(sec/60))
+              d.setSeconds(sec - Math.floor(sec/60)*60)
+              this.date = d
+              ptr += 6
+              if(ui8[0] <= 254){ //for versions > 1, calculate elapsed time
+                this.interpretTime = ((ui8[ptr+3])*0x1000000+(ui8[ptr+2])*0x10000+(ui8[ptr+1])*0x100+(ui8[ptr]))
+                this.startTime = performance.now() - this.interpretTime*1000 //push start time back by interpretTime - offset
+              }else{
+                this.interpretTime=0
+              }              
+              break;
+            default:
+              console.error("Unsupported scan version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.toCode = function(){
+          let code = "CTCA|" + t64(this.toBinary()) + "|ACTC"
+          document.getElementById("ctcacode").value = code
+          return code
+        }
+        this.loadCode = function(txt){
+          txt = txt.match(/(?<=CTCA\|)[A-Za-z0-9\+\/\=\!\?]+(?=\|ACTC$)/gm)[0]
+          this.fromBinary(f64(txt))
+          //update displayed report
+          //document.getElementById("report").innerHTML=ctc.toString()
+          //write displayed report to clipboard
+          //clip(document.getElementById("report").innerHTML)
+        }
+        this.updateDocument = function(){
+          // no need
+        }
+        this.get_c_code = function(){
+          let c_value = 0 //set baseline c value as Cx
+          if(this.adequacy.getAdequacy()){
+            c_value = 1 //C1
+          }
+          let polyp_cnt = this.polyps.filter(x=>(x.size>=1)).length //do not count polyps <=1 mm
+          if(polyp_cnt == 0){
+            return c_value //and avoid reducing against an empty array if there really are no polyps
+          }else{
+            let max_size = this.polyps[0].size
+            let got_stricture = false
+            let got_cancer = [false,true] // [is there cancer?, is it known?]
+            for(let i = 0;i< this.polyps.length;i++){//iterate over polyps
+              max_size = Math.max(this.polyps[i].size,max_size)
+              got_stricture = (got_stricture || this.polyps[i].is_type==1)
+              got_cancer[0] = (got_cancer[0] || this.polyps[i].is_type==2)
+              got_cancer[1] = (got_cancer[1] && (this.polyps[i].is_type==2 && this.polyps[i].known)) //all must be known
+            }
+            if(!Array.isArray(got_cancer)||got_cancer.length!==2||isNaN(got_cancer[0])||isNaN(got_cancer[1]) ){console.error("got_cancer is invalid")}
+            if(got_cancer[0]){//highest value if cancer is present, no need for further calcs
+              if(got_cancer[1]){//was at least one of the cancers known?
+                return 8 //C5a
+              }else{
+                return 9 //C5b
+              }
+            }
+            if(isNaN(got_stricture)){console.error("got_stricture is invalid")}
+            if(got_stricture){c_value = 5} //update c value to C3c if got stricture
+            // nb - nan values break the logic
+            if(isNaN(max_size)){console.error("max_size is invalid")}
+            if(polyp_cnt<=2){ //handle 1-2 polyp case, as 0 polyp case already returned
+              if(max_size <= 5){
+                return c_value //Cx or C1
+              }else if(max_size < 10){
+                return Math.max(c_value,2) //C2
+              }else{
+                return Math.max(c_value,4) //C3b
+              }
+            }else if(max_size < 10){ //handle 1-9mm case for >=3 polyp
+              if(polyp_cnt >=5){
+                return Math.max(c_value,6) //C4a
+              }else if(max_size >= 1){
+                return Math.max(c_value,3) //C3a
+              }else{
+                return c_value
+              }
+            }else{
+              return Math.max(c_value,7) //C4b
+            }
+          }
+        }
+        this.toString=function(){
+          let polypString = ""
+          for(let i=0;i<ctc.polyps.length;i++){
+            polypString += ctc.polyps[i].toString()
+          }
+          //implicitly update interpretTime each time this function is called, which should happen whenever the form is updated
+          this.interpretTime = (performance.now()-this.startTime)/1000
+          //if polypString is still empty after this assume no polyp worth reporting
+          return(
+            "Indication:\n"+
+            "CTC indication: " + ["BCSP","symptomatic"][this.indication] + "\n\n"+
+            "Technique:\n"+
+            this.technique.toString() + "\n\n"+
+            "Adequacy:\n"+
+            this.adequacy.toString() + "\n\n"+
+            "Colonic findings:\n"+
+            ((this.polyps.length>0&&polypString!=="")?polypString:"No colonic polyp, mass or bowel wall thickening.\n")+
+            "Appendix " + ["normal","indeterminate","abnormal","not present"][this.appendix] + ".\n"+
+            (this.colon_comments==""?"":("Additional comments: "+this.colon_comments+"\n")) + "\n"+
+            "Extra colonic findings:\n"+
+            (this.extracolon_comments==""?"None\n":(this.extracolon_comments+"\n")) + "\n"+
+            "Conclusion:\n"+
+            (this.conclusion==""?"":this.conclusion+"\n")+
+            "C Code: " + ["Cx ","C1 ","C2 ","C3a ","C3b ","C3c ","C4a ","C4b ","C5a ","C5b "][this.get_c_code()]+
+            ["","E1 ","E2 ","E3 ","E4 ","E5 "][this.extracolon_code]+
+            (this.adequacy.getAdequacy()?"A1":"A0") + "\n\n" + 
+            (this.toCode())
+          )
+        }
+      }
+    }
+    class Polyp{
+      constructor(){
+        this.id = null //integer reference, is immutable
+        this.is_type = 0 //0=polyp,1=stricture,2=cancer
+        this.height = 0 //mm
+        this.size = 1 //mm
+        this.morphology = 0 //0=no stalk, 1=broad based, 2=stalk
+        this.known = false //is this known on previous imaging?
+        this.depressed_centre = false
+        this.colon_loc = [0,0,0] //xy coordinates on colon image followed by named location in colon
+        this.image_nums = [0,0,0] //[position, series, image]
+        this.locate=function(arr){
+          return(["Caecum","Proximal ascending colon","Ascending colon","Distal ascending colon","Hepatic flexure","Proximal transverse colon","Transverse colon","Distal transverse colon","Splenic flexure","Proximal descending colon","Descending colon","Distal descending colon","Proximal sigmoid colon","Sigmoid colon","Distal sigmoid colon","Rectum"][arr[2]])
+        }
+        this.getMorphology=function(){
+          if(this.height >= 2.5){//grade I
+            return this.morphology //implied 1:1 correspondence to Is/Isp/Ip
+          }else{ //grade II
+            if(this.depressed_centre){
+              return 4 //IIa+c
+            }else{
+              return 3 //IIa
+            }
+          }
+        }
+        // v1 struct [16]
+        // byte 0, bits: (int8) 0xFF - version = 0xFF
+        // byte 1, bits: [0-2] is_type [3-5] morphology [6] depressed_centre [7] reserved
+        // byte [2-3], (int16) colon_loc[0]
+        // byte [4-5], (int16) colon_loc[1]
+        // byte 6 (int8) colon_loc[2]
+        // byte 7, (int8) image_nums[1]
+        // byte [8-9], (int16) image_nums[2]
+        // byte [10-11], (int16) height*10
+        // byte [12-13], (int16) size*10
+        // byte 14 (int8) image_nums[0]
+        // byte 15 -reserved
+        // v2 struct [16]
+        // byte 0, bits: (int8) 0xFF - version = 0xFE
+        // byte 1, bits: [0-2] is_type [3-5] morphology [6] depressed_centre [7] known
+        this.toBinary=function(){
+          let res = new ArrayBuffer(16);
+          let ui8 = new Uint8Array(res);
+          let ui16 = new Uint16Array(res);
+          ui8[0] = 0xFF - 1 //version
+          let byteOne = 0
+          byteOne += (this.is_type%7)*(1<<0)
+          byteOne += (this.morphology%7)*(1<<3)
+          if(this.depressed_centre){byteOne += (1<<6)}
+          if(this.known){byteOne += (1<<7)}
+          ui8[1] = byteOne
+          ui16[1] = Math.max(0,parseInt(this.colon_loc[0]))
+          ui16[2] = Math.max(0,parseInt(this.colon_loc[1]))
+          ui8[6] = Math.max(0,parseInt(this.colon_loc[2]))
+          ui8[7] = Math.max(0,parseInt(this.image_nums[1]))
+          ui16[4] = Math.max(0,parseInt(this.image_nums[2]))
+          ui16[5] = Math.max(0,parseInt(this.height*10))
+          ui16[6] = Math.max(0,parseInt(this.size*10))
+          ui8[14] = Math.max(0,parseInt(this.image_nums[0]))
+          if(checkEndian()==1){//big endian, need to flip order
+            //console.warn("Running on big endian system...")
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          let ui16 = new Uint16Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            //console.warn("Running on big endian system...")
+            //ui8.reverse()
+          }
+          switch(ui8[0]){
+            case 254:
+              this.known = (ui8[1] & (1<<7))>0
+            case 255:
+              this.is_type = (ui8[1] & 0b111)>>0
+              this.morphology = (ui8[1] & 0b111000)>>3
+              this.depressed_centre = (ui8[1] & (1<<6))>0
+              this.height = parseFloat(ui16[5])/10
+              this.size = parseFloat(ui16[6])/10
+              this.colon_loc=[ui16[1],ui16[2],ui8[6]]
+              this.image_nums=[ui8[14],ui8[7],ui16[4]]
+              break;
+            default:
+              console.error("Unsupported polyp version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.updateDocument=function(){
+          // no need
+        }
+        this.toString=function(){
+          let position_names=["Supine","LLD","RLD","Prone"]
+          let morpho_names = ["Sessile","Subpedunculated","Pedunculated","Flat","Flat with central depression"]
+          switch(this.is_type){ //allow for different reporting if is cancer
+          case 1: //is stricture
+            return(
+              "Indeterminate stricture.\n" +
+              "Location: " + this.locate(this.colon_loc) + ".\n" +
+              "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+            )
+            break;
+          case 2: //is cancer
+            return(
+              "Cancer size: " + this.size + "mm.\n" +
+              "Location: " + this.locate(this.colon_loc) + ".\n" +
+              "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+            )
+            break;
+          default: //everything else - interpret as polyp
+            if(this.size >= 6){ //only report if >6mm
+              return(
+                "Polyp size: " + this.size + "mm.\n" +
+                "Morphology: " + morpho_names[this.getMorphology()] + "\n" +
+                "Location: " + this.locate(this.colon_loc) + ".\n" +
+                "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+              )
+            }else{
+              return("")
+            }
+            break;
+          }
+        }
+      }
+    }
+    class Audit{
+      constructor(){
+        this.content = [] //list of scans sorted by ascending date
+        this.dayArray = [[],[],[],[],[]] //group data by day - date, adequacy, pir6,iTime, par3
+        //populate this.data
+        this.getData = function(){
+          this.dayArray = [[],[],[],[],[]] //reset dayArray
+          let curDate = [0,0,0] //current day, month and year
+          let cntDay = -1 //counter for things
+          //for each scan, push the data of interest into the arrays
+          for(let i=0;i<this.content.length;i++){
+            let d = this.content[i].date
+            if(d.getDate()!=curDate[0] || d.getMonth()!=curDate[1] || d.getFullYear()!=curDate[2]){
+              //new date - push new date and increment day idx
+              this.dayArray[0].push([d.getDate(),d.getMonth(),d.getFullYear()])
+              //and push new data arrays
+              for(let j=1;j<5;j++){
+                this.dayArray[j].push([])
+              }
+              //update stored date
+              curDate = [d.getDate(),d.getMonth(),d.getFullYear()]
+              //update day pointer
+              cntDay += 1
+            }
+            //now, push the relevant raw data
+            this.dayArray[1][cntDay].push(this.content[i].adequacy.getAdequacy())
+            let pir6 = false
+            for(let j = 0;j < this.content[i].polyps.length;j++){//iterate over polyps
+              if(this.content[i].polyps[j].size >= 6){
+                pir6 = true
+              }
+            }
+            this.dayArray[2][cntDay].push(pir6)
+            this.dayArray[3][cntDay].push(this.content[i].interpretTime/60)
+            this.dayArray[4][cntDay].push(this.content[i].technique.listPositions().length >= 3)
+          }
+          return this.dayArray
+        }
+        //taking dayArray - calculate daily or monthly stats
+        this.calculateStats = function(array,resolution="day"){
+          let res = [[],[],[],[],[]]
+          let mth = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+          if(resolution=="day"){
+            for(let i=0;i<array[0].length;i++){ //just push the stats of each day - already precalculated for you
+              res[0].push(["" + array[0][i][0] + " " + mth[array[0][i][1]] + "\n" + array[0][i][2], new Date(array[0][i][2],array[0][i][1],array[0][i][0])]) //[text string for easy comparison, date object for date math]
+              res[1].push(getTruePct(array[1][i]))
+              res[2].push(getTruePct(array[2][i]))
+              res[3].push(getStats(array[3][i]))
+              res[4].push(getTruePct(array[4][i]))
+            }
+          }else if(resolution=="month"){
+            let mStr = "" //month string - for easy comparison
+            let mCtr = 0 //number of month transitions
+            for(let i=0;i<array[0].length;i++){
+              //implicitly assume that array is sorted by date, since this.dayArray should be sorted by ascending date
+              let curMStr = "" + mth[array[0][i][1]] + " " + array[0][i][2]
+              if(i == 0){//special case for first entry - push the stats of day 1
+                res[0].push([curMStr, new Date(array[0][i][2],array[0][i][1],1)])
+                res[1].push([getTruePct(array[1][i])])
+                res[2].push([getTruePct(array[2][i])])
+                res[3].push([array[3][i]])
+                res[4].push([getTruePct(array[4][i])])
+              }else{
+                if(res[0][mCtr][0] != curMStr){ //new month
+                  // push new month name and stats from last month
+                  res[0].push([curMStr, new Date(array[0][i][2],array[0][i][1],1)])
+                  res[1].push([getTruePct(array[1][i])])
+                  res[2].push([getTruePct(array[2][i])])
+                  res[3].push([array[3][i]])
+                  res[4].push([getTruePct(array[4][i])])
+                  // calc stats from last month
+                  res[1][mCtr] = getStats(res[1][mCtr])
+                  res[2][mCtr] = getStats(res[2][mCtr])
+                  res[3][mCtr] = getStats(res[3][mCtr])
+                  res[4][mCtr] = getStats(res[4][mCtr])
+                  // and finally increment pointer
+                  mCtr += 1
+                }else{ //append to existing month
+                  res[1][mCtr].push(getTruePct(array[1][i]))
+                  res[2][mCtr].push(getTruePct(array[2][i]))
+                  res[3][mCtr] = [...res[3][mCtr],...array[3][i]]
+                  res[4][mCtr].push(getTruePct(array[4][i]))
+                }
+              }
+            }
+            //off by one - calc stats of final month
+            res[1][mCtr] = getStats(res[1][mCtr])
+            res[2][mCtr] = getStats(res[2][mCtr])
+            res[3][mCtr] = getStats(res[3][mCtr])
+            res[4][mCtr] = getStats(res[4][mCtr])
+          }
+          return res
+        }
+        this.view = ["day","table"]
+        this.toCSV = function(){
+          let res = "Date,\
+            InterpretSeconds,\
+            CCode,\
+            Adequacy,\
+            PositionCount,\
+            Operator,\
+            TubeLoc,\
+            OralGastrografin(mL),\
+            IVContrast,\
+            Buscopan(mL),\
+            Supine,\
+            LLD,\
+            RLD,\
+            Prone,\
+            BalloonDeflatedOneView,\
+            CTChestSameDay,\
+            AdequateFecalTag,\
+            AdequateInsufflation,\
+            FullyImaged,\
+            MotionArtifact,\
+            PolypCount,\
+            6mmPolypCount,\
+            LargestPolyp,\
+            StricturePresent,\
+            CancerPresent,\
+            Appendix,\
+            Indication"
+          res = res.replace(/[ \n]+/g,"")
+          res += "\n"
+          for(let i=0;i<this.content.length;i++){
+            let resArray = []
+            let d = this.content[i].date
+            resArray.push('"'+d.getFullYear()+(d.getMonth()>=9?"-":"-0")+(d.getMonth()+1)+(d.getDate()>=10?"-":"-0")+d.getDate()+(d.getHours()>=10?" ":" 0")+d.getHours()+(d.getMinutes()>=10?":":":0")+d.getMinutes()+(d.getSeconds()>=10?":":":0")+d.getSeconds()+'"') //date
+            resArray.push(this.content[i].interpretTime) //InterpretSeconds
+            resArray.push('"' + ["Cx ","C1 ","C2 ","C3a ","C3b ","C3c ","C4a ","C4b ","C5a ","C5b "][this.content[i].get_c_code()]+
+                          ["","E1 ","E2 ","E3 ","E4 ","E5 "][this.content[i].extracolon_code]+
+                          (this.content[i].adequacy.getAdequacy()?"A1":"A0") + '"') //CCode
+            resArray.push(this.content[i].adequacy.getAdequacy()) //Adequacy
+            resArray.push(this.content[i].technique.listPositions().length) //PositionCount
+            switch(typeof(this.content[i].technique.operator)){
+              case "string":
+                resArray.push('"'+this.content[i].technique.operator.replace(/"/g,'""')+'"') //Operator
+                break;
+              case "number":
+                resArray.push('"'+this.content[i].technique.operator+'"') //Operator
+                break;
+              default:
+                resArray.push('""') //Operator
+                break;
+            }
+            resArray.push(['"Rectal"','"Stomal"'][this.content[i].technique.intubation_loc]) //TubeLoc
+            resArray.push(this.content[i].technique.oral_contrast[0])//OralGastrografin(mL)
+            resArray.push(this.content[i].technique.iv_contrast) //IVContrast
+            resArray.push(this.content[i].technique.buscopan) //Buscopan(mL)
+            resArray.push(this.content[i].technique.positions[0]) //Supine
+            resArray.push(this.content[i].technique.positions[1]) //LLD
+            resArray.push(this.content[i].technique.positions[2]) //RLD
+            resArray.push(this.content[i].technique.positions[3]) //Prone
+            resArray.push(this.content[i].technique.balloon_deflated) //BalloonDeflatedOneView
+            resArray.push(this.content[i].technique.paired_ct_chest) //CTChestSameDay
+            resArray.push(this.content[i].adequacy.faecal_tag) //AdequateFecalTag
+            resArray.push(this.content[i].adequacy.insufflation) //AdequateInsufflation
+            resArray.push(this.content[i].adequacy.completely_imaged) //FullyImaged
+            resArray.push(['"None"','"Minimal"','"Severe (impairing interpretation)"'][this.content[i].adequacy.motion_artifact.reduce((acc,x)=>Math.max(acc,x))]) //MotionArtifact
+            resArray.push(this.content[i].polyps.length) //PolypCount
+            //iterate over polyps
+            let sigPolypCnt = 0
+            let largestPolyp = 0
+            let strictureBool = false
+            let cancerBool = false
+            for(let j = 0;j < this.content[i].polyps.length;j++){//iterate over polyps
+              largestPolyp = Math.max(largestPolyp, this.content[i].polyps[j].size)
+              if(this.content[i].polyps[j].size >= 6){
+                sigPolypCnt += 1
+              }
+              if(this.content[i].polyps[j].is_type == 1){
+                strictureBool = true
+              }
+              if(this.content[i].polyps[j].is_type == 2){
+                cancerBool = true
+              }
+            }
+            resArray.push(sigPolypCnt) //6mmPolypCount
+            resArray.push(largestPolyp) //LargestPolyp
+            resArray.push(strictureBool) //StricturePresent
+            resArray.push(cancerBool) //CancerPresent
+            resArray.push(['"Normal"','"Indeterminate"','"Abnormal"','"Not present"'][this.content[i].appendix]) //AppendixCode
+            resArray.push(['"BCSP"','"Symptomatic"'][this.content[i].indication]) //Indication
+            res += resArray.join()
+            res += "\n"
+          }
+          return res.slice(0,-1)
+        }
+        this.addBinary = function(bin){
+          let acodes = bin.match(/(CTCA\|)[A-Za-z0-9\+\/\=\!\?]+(\|ACTC)/gm)
+          for(let c=0;c<acodes.length;c++){
+            let adt = new Scan()
+            adt.loadCode(acodes[c])
+            this.content.push(adt)
+          }
+          //sort by date ascending
+          this.content.sort((a,b)=>(a.date-b.date))
+          this.updateDocument(this.getData())
+        }
+        this.deleteId = function(idx){
+          this.content.splice(idx,1) //deletes a scan at position idx
+        }
+        //update document based on data array from getData
+        this.updateDocument = function(data=this.dayArray){
+          if(this.content.length >0){
+            //show data displays
+            document.querySelectorAll(".result-holder")[0].style.display="flex"
+            document.querySelectorAll(".data-holder")[0].style.display="block"
+            //init variables
+            let stats = this.calculateStats(data,"day")
+            //update csv/table
+            let dataHolder = document.querySelectorAll(".display-holder")[0]
+            dataHolder.innerHTML = ""
+            switch(this.view[1]){
+              case "table":
+              let headers = ["Date", "Adequacy (%)", "6mm PIR (%)", "Interpretation Time (min)", "3<sup>rd</sup>/4</sup>th Polyp Acquisition Rate</sup> (%)"]
+              let table = document.createElement("table")
+              table.className = "data-table"
+              let th = document.createElement("tr")
+              th.className = "th"
+              for(let i=0;i<headers.length;i++){
+                let thdr = document.createElement("td")
+                thdr.innerHTML = headers[i]
+                th.appendChild(thdr)
+              }
+              table.appendChild(th)
+              for(let i=0;i<stats[0].length;i++){
+                let tr = document.createElement("tr")
+                let tdd = document.createElement("td")
+                tdd.innerHTML = stats[0][i][0]
+                let tda = document.createElement("td")
+                tda.innerHTML = Math.round(stats[1][i]*10)/10
+                let tdpir = document.createElement("td")
+                tdpir.innerHTML = Math.round(stats[2][i]*10)/10
+                let tdit = document.createElement("td") //[max,min,avg,median,stdev,sem]
+                tdit.innerHTML = "Avg: " + Math.round(stats[3][i][3]*100)/100 + " (95% CI: +/- "+ Math.round(stats[3][i][5]*196)/100 +" )<br> Max: "+Math.round(stats[3][i][0]*100)/100+"<br> Min: "+Math.round(stats[3][i][1]*100)/100
+                let tdpar = document.createElement("td")
+                tdpar.innerHTML = Math.round(stats[4][i]*10)/10
+                tr.appendChild(tdd)
+                tr.appendChild(tda)
+                tr.appendChild(tdpir)
+                tr.appendChild(tdit)
+                tr.appendChild(tdpar)
+                table.appendChild(tr)
+              }
+              dataHolder.appendChild(table)
+              break;
+              case "csv":
+                let button = document.createElement("input")
+                let code = document.createElement("pre")
+                code.id="csv-holder"
+                button.type = "button"
+                button.value = "Download"
+                code.innerHTML = this.toCSV()
+                button.className = "download-button"
+                button.addEventListener("click",function(){
+                  let blob = new Blob([document.getElementById("csv-holder").innerHTML], { type: 'text/csv' })
+                  let url = window.URL.createObjectURL(blob) 
+                  let a = document.createElement('a')
+                  let d = new Date
+                  a.setAttribute('href', url)
+                  a.setAttribute('download', 'audit ' +d.getFullYear()+(d.getMonth()>=9?"-":"-0")+(d.getMonth()+1)+(d.getDate()>=10?"-":"-0")+d.getDate()+(d.getHours()>=10?" ":" 0")+d.getHours()+(d.getMinutes()>=10?"-":"-0")+d.getMinutes()+(d.getSeconds()>=10?"-":"-0")+d.getSeconds() + '.csv')
+                  a.click()
+                })
+                dataHolder.appendChild(button)
+                dataHolder.appendChild(code)
+              break;
+              default:
+              break;
+            }
+            //update graphs
+            let displayStats = [[],[],[],[],[]]
+            let minAdequacy = 90
+            switch(this.view[0]){
+              case "day": //date, adequacy, pir6,iTime, par3
+                //no need to do anything
+                minAdequacy = Math.min(90,...stats[1])
+              break;
+              case "month":
+                stats = this.calculateStats(data,"month")
+                stats[1].map(x=>{minAdequacy = Math.min(x[1],x[2]-x[5]*2,minAdequacy)}) //iterate to find minimum min value in array of stats
+              break;
+              default:
+              break;
+            }
+            for(let i=0;i<stats[0].length;i++){
+              if(i==0){
+                displayStats = [[stats[0][0][0]],[stats[1][0]],[stats[2][0]],[stats[3][0]],[stats[4][0]]]
+              }else{
+                let inc = getInterval(stats[0][i-1][1],stats[0][i][1],this.view[0]) - 1
+                for(let j=0;j<stats.length;j++){
+                  displayStats[j].push(...new Array(inc))
+                  if(j==0){
+                    displayStats[j].push(stats[j][i][0])
+                  }else{
+                    displayStats[j].push(stats[j][i])
+                  }
+                }
+              }
+            }
+            drawGraph("graph-adequacy",displayStats[0],displayStats[1],5,"Date", "Adequacy (%)", minAdequacy,1000,500,[0,95,95,98,98,100])
+            drawGraph("graph-6pir",displayStats[0],displayStats[2],5,"Date", "Rate (%)", 0,1000,500,[0,14,13,16,16,Infinity])
+            drawGraph("graph-interpret",displayStats[0],displayStats[3],5,"Date", "Time (min)",0, 1000,500,[0,20,20,25,25,Infinity])
+            drawGraph("graph-3par",displayStats[0],displayStats[4],5,"Date", "Rate (%)",0, 1000,500,[0,5,5,5,5,Infinity])
+          }else{
+          //hide everything
+            document.querySelectorAll(".result-holder")[0].style.display="none"
+            document.querySelectorAll(".data-holder")[0].style.display="none"
+          }
+        }
+      }
+    }
+    //initialise audit global var
+    list = new Audit()
+    document.getElementById('btn-submit').addEventListener("click", function(){list.addBinary(document.getElementById('audit_codes').value)})
+    //calculates percentage of an array of true,false that is true
+    function getTruePct(array){
+      let len = array.length
+      let res = array.reduceRight((a,x)=>{if(x===true){return a+1}else{return a}},0)/len
+      return res*100
+    }
+    //calculates stats for an array of numeric values.
+    //returns [max,min,avg,median,stdev,sem]
+    function getStats(array){
+      let res = [,,,,,,]
+      let alen = 0
+      //test array validity - exit early if not
+      if(Array.isArray(array)){
+        res = [-Infinity,Infinity,0,0,0,0]//set up initial values if array
+        if(array.length==0){//fast paths for 0 and 1 value
+          return [NaN,NaN,NaN,NaN,NaN,NaN]
+        }
+        if(array.length==1){
+          return [array[0],array[0],array[0],array[0],0,0]
+        }
+      }else{//not array, exit early
+        return res
+      }
+      //strip out non-numeric values and calculate max, min, and accumulator
+      //implicitly skip over blank entries
+      let array2 = array.map(
+        v => {
+          if((typeof(v) !== "number") || isNaN(v)){
+            return NaN
+          }else{
+            alen += 1
+            res[0]=Math.max(res[0],v)
+            res[1]=Math.min(res[1],v)
+            res[2] += v
+            return v
+          }
+        }
+      )
+      //calculate average
+      res[2] = res[2]/alen
+      //calculate median
+      array2.sort()
+      if(alen%2){//if odd
+        res[3] = array2[(alen-1)/2]
+      }else{//if even
+        res[3] = (array2[(alen/2)-1] + array2[(alen/2)] )/2
+      }
+      //calculate stdev - no need to test for number again
+      array2.map(
+        v => {
+          if(!isNaN(v)){
+            res[4] +=( (v-res[2])**2)
+          }
+        }
+      )
+      res[4] = Math.sqrt(res[4]/(alen-1)) //sample stdev - so divide by n-1
+      //calculate sem - stdev/sqrt(n)
+      //multiply by 1.96 to get 95% CI
+      res[5] = (res[4]/Math.sqrt(alen))
+      return res
+    }
+    //draws a graph with categorical x values and continuous y variables
+    // acceptable = [bad min, bad max, ok min, ok max, great min, great max]
+    function drawGraph(id,xlabels,yvals,ysteps,xlabel="",ylabel="",ymin=0,width=800, height=800,acceptable=[]){
+      let gra = document.getElementById(id)
+      gra.height=height
+      gra.width=width
+      let ctx = gra.getContext("2d")
+      let ymax = 0
+      yvals.map(v => {
+        if((typeof(v) !== "number"|| isNaN(v)) && !(Array.isArray(v) && v.length==6)){
+        }else{
+          if(Array.isArray(v) && v.length==6){//is it a stats array?
+            ymax=Math.max(ymax,v[0])
+            ymin=Math.min(ymin,v[1])
+          }else{// should be a number
+            ymax=Math.max(ymax,v)
+            ymin=Math.min(ymin,v)
+          }
+        }
+      }) //implicitly only increment ymax if yvals is numeric
+      let mrg = [height*0.1,height*0.2,width*0.08,width*0.02] //[top,bottom,left,right margin]
+      let ahd = [height*0.06,height*0.02] //[arrowhead length, arrowhead half width]
+      let yscale = [Math.ceil(((ymax-ymin)/ysteps)*10)/10, ((height-mrg[1]-mrg[0]-(ahd[0]*1.5))/ysteps),0] //[ystep,corresponding pixel units,pixels per y]
+      yscale[2] = yscale[1]/yscale[0]
+      let xstep = (width-mrg[2]-mrg[3]-(ahd[0]*1.5))
+      if(yvals.length==1){
+        xstep = xstep/2
+      }else{
+        xstep = xstep/(yvals.length-1)
+      }
+      if(acceptable !== null && typeof(acceptable)=="object" && acceptable.length ===6){
+        //limit unset max cutoffs to being below ymax as long as it is above min cutoff
+        if(acceptable[1] == Infinity){
+          acceptable[1] = Math.max(acceptable[0],Math.min(ymax,acceptable[1]))
+        }
+        if(acceptable[3] == Infinity){
+          acceptable[3] = Math.max(acceptable[2],Math.min(ymax,acceptable[3]))
+        }
+        if(acceptable[5] == Infinity){
+          acceptable[5] = Math.max(acceptable[4],Math.min(ymax,acceptable[5]))
+        }
+        //recalculate yscale to include acceptable range
+        yscale = [Math.ceil(((Math.max(ymax,...acceptable)-ymin)/ysteps)*10)/10, ((height-mrg[1]-mrg[0]-(ahd[0]*1.5))/ysteps),0] 
+        yscale[2] = yscale[1]/yscale[0]
+        //draw bad rectangle
+        ctx.fillStyle = "#FCC"
+        acceptable[0] = Math.max(ymin,acceptable[0]) //cutoff drawing badmin at 0
+        ctx.beginPath()
+        ctx.rect(mrg[2],height -mrg[1] - (acceptable[1]-ymin)*yscale[2],width-mrg[2]-mrg[3]-(ahd[0]*1.5),(acceptable[1]-acceptable[0])*yscale[2])
+          ctx.fill()
+        //draw ok rectangle
+        ctx.fillStyle = "#FFC"
+        acceptable[2] = Math.max(ymin,acceptable[2]) //cutoff drawing okmin at 0
+        ctx.beginPath()
+        ctx.rect(mrg[2],height -mrg[1] - (acceptable[3]-ymin)*yscale[2],width-mrg[2]-mrg[3]-(ahd[0]*1.5),(acceptable[3]-acceptable[2])*yscale[2])
+          ctx.fill()
+        //draw good rectangle
+        ctx.fillStyle = "#CFC"
+        acceptable[4] = Math.max(ymin,acceptable[4]) //cutoff drawing goodmin at 0
+        ctx.beginPath()
+        ctx.rect(mrg[2],height -mrg[1] - (acceptable[5]-ymin)*yscale[2],width-mrg[2]-mrg[3]-(ahd[0]*1.5),(acceptable[5]-acceptable[4])*yscale[2])
+        ctx.closePath()
+        ctx.fill()
+      }
+      //reset fill color
+      ctx.fillStyle = "#000"
+      //draw axes
+      ctx.beginPath()
+      ctx.moveTo(mrg[2],mrg[0])
+      ctx.lineTo(mrg[2],height-mrg[1]) //draw y axis
+      ctx.lineTo(width-mrg[3], height-mrg[1]) //draw x axis
+      //draw labels
+      ctx.font = height*0.05 +"px Arial";
+      ctx.textAlign = "center";
+      //y axis title
+      ctx.fillText(ylabel,mrg[2], mrg[0]-height*0.01);
+      //x axis tick and labels
+      ctx.font = height*0.04 +"px Arial";
+      if(yvals.length==1){
+        ctx.moveTo(mrg[2]+xstep,height-mrg[1])
+        if(typeof(xlabels[0])==="string" || typeof(xlabels[0])==="number"){
+          ctx.lineTo(mrg[2]+xstep,height-mrg[1]+ahd[1]) //long line
+          xlabels[0] = ""+ xlabels[0] //cast to string
+          //split by new line
+          let lines = xlabels[0].split("\n")
+          for(let n=0;n<lines.length;n++){
+            ctx.fillText(lines[n], mrg[2]+xstep,height-mrg[1]+height*0.05*(0.8*n+1)); 
+          }
+        }else{
+          ctx.lineTo(mrg[2]+xstep,height-mrg[1]+(ahd[1]*0.7)) //short line
+        }
+      }else{
+        for(let i=0;i<yvals.length;i++){
+          ctx.moveTo(mrg[2]+xstep*i,height-mrg[1])
+          if(typeof(xlabels[i])==="string" || typeof(xlabels[i])==="number"){
+            ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]+ahd[1]) //long line
+            xlabels[i] = ""+ xlabels[i] //cast to string
+            //split by new line
+            let lines = xlabels[i].split("\n")
+            for(let n=0;n<lines.length;n++){
+              ctx.fillText(lines[n], mrg[2]+xstep*i,height-mrg[1]+height*0.05*(0.8*n+1)); 
+            }
+          }else{
+            ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]+(ahd[1]*0.7)) //short line
+          }
+        }
+      }
+      ctx.textAlign = "right";
+      //x axis title
+      ctx.font = height*0.05 +"px Arial";
+      ctx.fillText(xlabel,(width-mrg[3]-(ahd[0]*1.1)),height-mrg[1]-height*0.01);
+      //y axis labels
+      ctx.font = height*0.04 +"px Arial";
+      for(let i=0;i<=ysteps;i++){
+        ctx.moveTo(mrg[2],height-mrg[1]-yscale[1]*i)
+        ctx.lineTo(mrg[2]-ahd[1],height-mrg[1]-yscale[1]*i)
+        ctx.fillText(Math.round((ymin+yscale[0]*i)*10)/10, mrg[2]-ahd[1]-height*0.01,height-mrg[1]-yscale[1]*i+height*0.015); 
+      }
+      ctx.stroke()
+      //draw line graph
+      ctx.beginPath()
+      if(yvals.length == 1){
+        if(Array.isArray(yvals[0]) && yvals[0].length==6){
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][0]-ymin)) //draw circle for max
+          ctx.arc(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][0]-ymin),2,0,7) 
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][1]-ymin)) //draw circle for min
+          ctx.arc(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][1]-ymin),2,0,7)
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][2]-ymin + (yvals[0][5]*1.96))) //draw line from +1.96sem
+          ctx.lineTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][2]-ymin - (yvals[0][5]*1.96))) //to -1.96sem aka 95% CI
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][2]-ymin)) //to original point
+          ctx.arc(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][2]-ymin),2,0,7) //and draw a circle there
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0][2]-ymin)) //and back to original point
+        }else{
+          ctx.moveTo(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0]-ymin))
+          ctx.arc(mrg[2]+xstep,height-mrg[1]-yscale[2]*(yvals[0]-ymin),2,0,7)
+        }
+      }else{
+        for(let i=0;i<yvals.length;i++){
+          if(i==0){//move to first point
+            if(Array.isArray(yvals[i]) && yvals[i].length==6){
+              ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][0]-ymin)) //draw circle for max
+              ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][0]-ymin),2,0,7) 
+              ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][1]-ymin)) //draw circle for min
+              ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][1]-ymin),2,0,7)
+              ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin + (yvals[i][5]*1.96))) //draw line from +1.96sem
+              ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin - (yvals[i][5]*1.96))) //to -1.96sem aka 95% CI
+              ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin)) //to original point
+              ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin),2,0,7) //and draw a circle there
+              ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin)) //and back to original point
+            }else{
+              ctx.moveTo(mrg[2],height-mrg[1]-yscale[2]*(yvals[i]-ymin))
+              ctx.arc(mrg[2],height-mrg[1]-yscale[2]*(yvals[i]-ymin),2,0,7)
+              ctx.moveTo(mrg[2],height-mrg[1]-yscale[2]*(yvals[i]-ymin))
+            }
+          }else if(typeof(yvals[i])==="number"){//handle subsequent numbers
+            ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i]-ymin))
+            ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i]-ymin),2,0,7) //draw circle
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i]-ymin))
+          }else if(Array.isArray(yvals[i]) && yvals[i].length==6){//handle drawing stats array
+            ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin)) //to next average
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][0]-ymin))
+            ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][0]-ymin),2,0,7) //draw circle for max
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][1]-ymin))
+            ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][1]-ymin),2,0,7) //draw circle for min
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin + (yvals[i][5]*1.96))) //draw line from +1.96sem
+            ctx.lineTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin - (yvals[i][5]*1.96))) //to -1.96sem aka 95% CI
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin)) //to original point
+            ctx.arc(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin),2,0,7) //and draw a circle there
+            ctx.moveTo(mrg[2]+xstep*i,height-mrg[1]-yscale[2]*(yvals[i][2]-ymin)) //back to original point
+          }
+        }
+      }
+      ctx.stroke()
+      //draw arrows
+      ctx.beginPath()
+      //up arrow
+      ctx.moveTo(mrg[2],mrg[0])
+      ctx.lineTo(mrg[2]-ahd[1]/2,mrg[0]+ahd[0])
+      ctx.lineTo(mrg[2]+ahd[1]/2,mrg[0]+ahd[0])
+      //right arrow
+      ctx.moveTo(width-mrg[3], height-mrg[1])
+      ctx.lineTo(width-mrg[3]-ahd[0], height-mrg[1]+ahd[1]/2)
+      ctx.lineTo(width-mrg[3]-ahd[0], height-mrg[1]-ahd[1]/2)
+      ctx.closePath()
+      ctx.fill()
+      console.log(acceptable)
+    }
+    function getInterval(date1,date2,type="day"){ //number of whole months/days between two date objects
+      if(type == "month"){
+        return Math.abs(((date2.getFullYear()-date1.getFullYear())*12)+(date2.getMonth()-date1.getMonth())%12)
+      }else{
+        return Math.round(Math.abs(date2.getTime()-date1.getTime())/86400000)
+      }
+    }
+    function toolbarHandler(e){
+      //update UI and global list variable
+      switch(e.target.id){
+        case "toolbar-day":
+          e.target.className = "toolbar-option toolbar-selected"
+          document.getElementById("toolbar-month").className = "toolbar-option"
+          list.view[0] = "day"
+        break;
+        case "toolbar-month":
+          e.target.className = "toolbar-option toolbar-selected"
+          document.getElementById("toolbar-day").className = "toolbar-option"
+          list.view[0] = "month"
+        break;
+        case "toolbar-table":
+          e.target.className = "toolbar-option toolbar-selected"
+          document.getElementById("toolbar-csv").className = "toolbar-option"
+          list.view[1] = "table"
+        break;
+        case "toolbar-csv":
+          e.target.className = "toolbar-option toolbar-selected"
+          document.getElementById("toolbar-table").className = "toolbar-option"
+          list.view[1] = "csv"
+        break;
+        default:
+        break;
+      }
+      //implicitly update data displays and unhide/hide everything
+      list.updateDocument() //update view
+    }
+    toolbar = document.querySelectorAll(".toolbar-option") //target all toolbar elements
+    for(let i=0;i<toolbar.length;i++){
+      toolbar[i].addEventListener("click",toolbarHandler)
+    }
+
+//for debug purposes only
+/*
+drawGraph("graph-adequacy",["Dec 2023",2,3,4],[90,95, 91,95.5,99],5,"Time", "Adequacy (%)", 90,800,400,[0,95,95,98,98,100])
+drawGraph("graph-6pir",["Dec 2023",2,3,4],[30,5, 61,13.5,5],5,"Time", "Rate (%)", 0,800,400,[0,Infinity,13,16,16,20])
+drawGraph("graph-interpret",["Dec 2023",2,3,4],[30,null, ,NaN,"",5,5],5,"Time", "Time (min)",0, 800,400,[0,20,20,25,25,Infinity])
+drawGraph("graph-3par",["Dec 2023",2,3,4],[30,null, 61,13.5,5],5,"Time", "Rate (%)",0, 800,400,[0,5,5,5,5,Infinity])
+
+Sample data
+2 polyps and 1 stricture C4b E1 A1
+2 polyps and 1 cancer, 3 views C5a E1 A1
+3 polyps (1 pedunculated) and 1 cancer, C5b E4 A1
+3 views, normal
+3 views, inadequate
+2 views, adequate, 1 polyp
+3 polyps (1 pedunculated) and 1 cancer, C5b E4 A1 - inadequate
+CTCA|/g!QMAD?E?E!D/BwD/BAMUy?EAFRlc3T/AEcBNQAH!!Bk!A/wBzAQEBCw!!Mg!P8B7QBrAQ8!!Hg!B0ZXN0NQ4A6Ac8VjI!A|ACTC
+CTCA|/g!QMAD?E?E!D/BwD/BAcUy?EAFRlc3T/AEcBNQAH!!Bk!A/wBzAQEBCw!!Mg!P8C7QBrAQ8!!Hg!B0ZXN0NQ4A6AdbVn!?|ACTC
+CTCA|/g?BAQAD?E?M?wD/BwD/BAcUy?EAFRlc3T/AEcBNQAH!!Bk!A/wBzAQEBCw!!Mg!P8C7QBrAQ8!!Hg!D/EEcAPgAE!AMgAK!AdGVzdGRmZmZkcw4A6AeAVrk!A|ACTC
+CTCA|/g!Q?C!!!D/BwD/BAcUy!ABwA6Ad0hQM!A|ACTC
+CTCA|/g!Q?C!!!D/AgD/BAcUy!ABwA6AeChR4!A|ACTC
+CTCA|/g!QEAC!!!D/BwD/BAMUy!AP8A3?3?Y!!GQ!AcAOgHjoU3!A|ACTC
+CTCA|/g!QMAD?E?E!D/BwL/BAcUy?EAFRlc3T/AEcBNQAH!!Bk!A/wBzAQEBCw!!Mg!P8C7QBrAQ8!!Hg!B0ZXN0NRwA6AePmXg!A|ACTC
+*/
+    console.log("This code written by Clifford Sia on 7/11/2023.")
+    console.log("look ma, no network requests!")
+  </script>
+</body>
+
+</html>

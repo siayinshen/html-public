@@ -1,0 +1,306 @@
+CREATE USER 'liver'@'localhost' IDENTIFIED BY 'hcc';
+CREATE DATABASE hdb;
+GRANT ALL PRIVILEGES ON hdb.* TO 'liver'@'localhost';
+USE hdb;
+-- Print commands to delete all existing tables, then delete tables
+SELECT concat('DROP TABLE IF EXISTS `', table_name, '`;')
+  FROM information_schema.tables
+  WHERE table_schema = 'hdb';
+
+SET foreign_key_checks = 0;
+DROP TABLE IF EXISTS `patient_favourite_list`;
+DROP TABLE IF EXISTS `patient_membership_table`;
+DROP TABLE IF EXISTS `doctor_membership_table`;
+DROP TABLE IF EXISTS `appt_templates`;
+DROP TABLE IF EXISTS `usergroup`;
+DROP TABLE IF EXISTS `doctor_contacts`;
+DROP TABLE IF EXISTS `patient`;
+DROP TABLE IF EXISTS `contact_modality`;
+DROP TABLE IF EXISTS `patient_contacts`;
+DROP TABLE IF EXISTS `appointments`;
+DROP TABLE IF EXISTS `appt_locations`;
+DROP TABLE IF EXISTS `doctor`;
+DROP TABLE IF EXISTS `messages`;
+SET foreign_key_checks = 1;
+--SHOW ENGINE INNODB STATUS \G
+
+-- Note: all text/varchar fields shall be base64 encoded. The calling code is responsible for data sanitisation
+-- Note: all mediumtext fields shall contain a base64 encoded json object containing information sanitised as per text field
+-- Note: all longtext fields shall contain a data uri 
+-- Note: login shall proceed as follows
+--       0. user sets the value of the password and transmits sha3(password) to signup.php, who stores sha3^2(password))
+--       1. to log in, server checks if there is an in date login token to use
+--       2. else, it creates a login token = PHPSESSID and sends this to user
+--       3. user generates and stores cookie uid:login_token and token:username|sha3(sha3^2(password) + sha3^2(login_token))) on login.php 
+--       4. auth.php finds an entry in doctor where base64(username) exists. If login_until is in date, use db's login token, else use users's login_token. Verify that sha3(sha3^2(password) + sha3^2(login_token))) is correct and that the privileges are correct.
+--       5. if fail, go to step 2
+--       6. on each page load, go to step 4
+--       7. if match, login_until is updated to 1 hour from now otherwise go to step 2
+--       8. if login_until is before now, go to step 2
+-- HELPER TABLES
+-- Keeps track of appointment locations for each institution. Intended to allow one click changes to appointment locations across all patients.
+
+select last_insert_id();
+CREATE TABLE appt_locations (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  usergroup_id INT UNSIGNED DEFAULT NULL COMMENT 'ID of institution to which appt belongs',
+  location_name VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Brief location description',
+  location_info TEXT NOT NULL DEFAULT '' COMMENT 'Further info on where to find place',
+  CONSTRAINT AL_Unique_Location
+    UNIQUE (usergroup_id,location_name)
+);
+-- Insert canary at index 0
+INSERT INTO appt_locations (id,usergroup_id,location_name,location_info) VALUES(0,0,'','');
+UPDATE appt_locations SET id=0;
+
+-- Keeps track of autofill data for appointment locations for each usergroup
+CREATE TABLE appt_templates (
+  id INT UNSIGNED PRIMARY KEY  AUTO_INCREMENT,
+  usergroup_id INT UNSIGNED NOT NULL COMMENT 'ID of institution offering this appt',
+  location INT UNSIGNED COMMENT 'Pointer to appointment location',
+  appt_name VARCHAR(512) NOT NULL DEFAULT '' COMMENT 'Default short description of appointment',
+  appt_purpose TEXT NOT NULL DEFAULT '' COMMENT 'Default description of appointment',
+  typical_interval INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Default interval in days to schedule appointment',
+  CONSTRAINT AT_Unique_Appointment
+    UNIQUE (usergroup_id,location,appt_name),
+  CONSTRAINT AT_Appointment_Location_Must_Be_Valid
+    FOREIGN KEY(location) REFERENCES appt_locations(id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+-- Insert canary at index 0
+INSERT INTO appt_templates(id,usergroup_id,location,appt_name,appt_purpose,typical_interval) VALUES(0,0,0,'','',0);
+UPDATE appt_templates SET id=0;
+
+-- Keeps track of supported contact methods (eg email, phone, social media)
+CREATE TABLE contact_modality (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  type TEXT NOT NULL DEFAULT '' COMMENT 'Text describing modality of communication'
+);
+INSERT INTO contact_modality(type) VALUES('phone');
+INSERT INTO contact_modality(type) VALUES('email');
+                 
+-- DOCTOR INFO
+-- A usergroup is an institution to which a doctor may belong
+CREATE TABLE usergroup (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  group_name VARCHAR(512) NOT NULL DEFAULT '', 
+  descr TEXT NOT NULL DEFAULT '',
+  CONSTRAINT Ug_Unique_Usergroup
+    UNIQUE (group_name)
+);
+-- Insert canary at index 0
+INSERT INTO usergroup(id,group_name,descr) VALUES(0,'','');
+UPDATE usergroup SET id=0;
+
+-- When a usergroup is deleted, retain all appointment locations for information governnce
+ALTER TABLE appt_locations
+  ADD CONSTRAINT AL_Usergroup_Must_Be_Valid
+  FOREIGN KEY(usergroup_id) REFERENCES usergroup(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+-- When a usergroup is deleted, delete all appointment templates
+ALTER TABLE appt_templates
+  ADD CONSTRAINT AT_Usergroup_Must_Exist
+  FOREIGN KEY(usergroup_id) REFERENCES usergroup(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+-- List of doctor contact details
+CREATE TABLE doctor_contacts (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  doctor_id INT UNSIGNED NOT NULL,
+  contact_type INT UNSIGNED DEFAULT NULL,
+  contact_detail VARCHAR(512) NOT NULL DEFAULT '',
+  CONSTRAINT UC_Contact_Already_Exists
+    UNIQUE (doctor_id,contact_type,contact_detail),
+  CONSTRAINT UC_Contact_Modality_Must_Be_Valid
+    FOREIGN KEY(contact_type) REFERENCES contact_modality(id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+-- Insert canary at index 0
+INSERT INTO doctor_contacts(id,doctor_id,contact_type,contact_detail) VALUES(0,0,1,'');
+UPDATE doctor_contacts SET id=0;
+
+-- List of doctors
+-- Privileges: 0-No access, reference only, 1-Read only, 2-May add/edit/delete patients, 3-May add/edit/delete users, 4- Superuser, may create/edit groups
+
+CREATE TABLE doctor (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  username VARCHAR(512) NOT NULL DEFAULT '', 
+  privilege INT UNSIGNED NOT NULL DEFAULT 0,
+  password_hash VARCHAR(128) NOT NULL DEFAULT '' COMMENT 'sha3(sha3(password))',
+  login_token VARCHAR(128) DEFAULT NULL COMMENT 'sha3(PHP session id)',
+  preferred_contact INT UNSIGNED DEFAULT NULL COMMENT 'Preferred means of contact, set to null if entry deleted',
+  login_until DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  config MEDIUMTEXT NOT NULL DEFAULT 'e30=' COMMENT 'Placeholder field for user config settings',
+  CONSTRAINT D_Doctor_Contact_Must_Exist
+    FOREIGN KEY(preferred_contact) REFERENCES doctor_contacts(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT D_Username_Must_Be_Unique
+    UNIQUE (username)
+);
+-- Insert canary at index 0
+INSERT INTO doctor(id,username,privilege,password_hash,login_token,preferred_contact,login_until,config) VALUES(0,0,0,'','',NULL,'0000-001-01 00:00:00','e30=');
+UPDATE doctor SET id=0 WHERE id=1;
+
+-- Delete all contacts associated with a user when a user is deleted
+ALTER TABLE doctor_contacts
+  ADD CONSTRAINT DC_Doctor_Must_Exist
+  FOREIGN KEY doctor_contacts(doctor_id) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+-- Keeps track of which doctors are in each usergroup
+CREATE TABLE doctor_membership_table (
+  doctor_id INT UNSIGNED NOT NULL,
+  usergroup_id INT UNSIGNED DEFAULT NULL,
+  PRIMARY KEY (doctor_id,usergroup_id),
+  CONSTRAINT DMT_Already_A_Member
+    UNIQUE (doctor_id,usergroup_id),
+  CONSTRAINT DMT_Usergroup_Must_Be_Valid
+    FOREIGN KEY(usergroup_id) REFERENCES usergroup(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT DMT_Doctor_Must_Exist
+    FOREIGN KEY(doctor_id) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- PATIENT INFO
+-- List of patient contact details
+CREATE TABLE patient_contacts (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  patient_id INT UNSIGNED NOT NULL, 
+  contact_type INT UNSIGNED DEFAULT NULL,
+  contact_detail VARCHAR(512) NOT NULL DEFAULT '',
+  CONSTRAINT PC_Contact_Already_Exists
+    UNIQUE (patient_id,contact_type,contact_detail),
+  CONSTRAINT PC_Contact_Modality_Must_Be_Valid
+    FOREIGN KEY(contact_type) REFERENCES contact_modality(id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+
+-- List of patients
+CREATE TABLE patient (
+  id INT UNSIGNED PRIMARY KEY NOT NULL AUTO_INCREMENT, 
+  hospital_id VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'K number',
+  government_id VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'NHS number', 
+  name VARCHAR(512) NOT NULL DEFAULT '',
+  preferred_contact INT UNSIGNED DEFAULT NULL COMMENT 'Preferred means of contact, set to null if deleted',
+  lead_consultant INT UNSIGNED DEFAULT NULL COMMENT 'Lead consultant in charge of care, set to null if deleted',
+  dob DATE NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Date of birth',
+  research_consent BOOLEAN NOT NULL DEFAULT 0,
+  last_attended_appointment INT UNSIGNED DEFAULT NULL COMMENT 'Last attended appointment',
+  next_appointment INT UNSIGNED DEFAULT NULL COMMENT 'Next booked appointment',
+  last_reminder_sent DATETIME DEFAULT NULL COMMENT 'Last reminder sent',
+  pmh_config TEXT NOT NULL DEFAULT 'e30=' COMMENT 'Placeholder field for patient treatment info',
+  unique_ref VARCHAR(128) NOT NULL DEFAULT '' COMMENT 'sha512(sha512(keyword)) to allow a patient to send messages',
+  CONSTRAINT P_Patient_Contact_Must_Be_Valid
+    FOREIGN KEY(preferred_contact) REFERENCES patient_contacts(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT P_Consultant_Must_Be_Valid
+    FOREIGN KEY(lead_consultant) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT P_Duplicate_Hospital_Number
+    UNIQUE (hospital_id),
+  CONSTRAINT P_Duplicate_NHS_Number
+    UNIQUE (government_id)
+);
+
+-- Delete all contacts associated with a patient when a patient is deleted
+ALTER TABLE patient_contacts
+  ADD CONSTRAINT PC_Patient_Must_Exist
+  FOREIGN KEY patient_contacts(patient_id) REFERENCES patient(id) ON UPDATE CASCADE ON DELETE CASCADE;
+
+-- Keeps track of which patients are in each usergroup
+CREATE TABLE patient_membership_table (
+  patient_id INT UNSIGNED NOT NULL,
+  usergroup_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (patient_id,usergroup_id),
+  CONSTRAINT PMT_Already_A_Member
+    UNIQUE (patient_id,usergroup_id),
+  CONSTRAINT PMT_Usergroup_Must_Exist
+    FOREIGN KEY(usergroup_id) REFERENCES usergroup(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT PMT_Patient_Must_Exist
+    FOREIGN KEY(patient_id) REFERENCES patient(id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- Keeps track of which patients are favourited by which clinician
+CREATE TABLE patient_favourite_list (
+  doctor_id INT UNSIGNED NOT NULL,
+  patient_id INT UNSIGNED NOT NULL,
+  PRIMARY KEY (doctor_id,patient_id),
+  CONSTRAINT PFL_Already_Favourited
+    UNIQUE (doctor_id,patient_id),
+  CONSTRAINT PFL_Doctor_Must_Exist
+    FOREIGN KEY(doctor_id) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT PFL_Patient_Must_Exist
+    FOREIGN KEY(patient_id) REFERENCES patient(id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+CREATE TABLE appointments (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  doctor_id INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to doctor who booked this appointment', 
+  patient_id INT UNSIGNED NOT NULL COMMENT 'Pointer to patient, delete if patient is deleted', 
+  booked_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+  due_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+  attended_date DATETIME DEFAULT NULL,
+  cancelled_date DATETIME DEFAULT NULL,
+  reminder_count INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Number of reminders sent',
+  last_reminder INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to last message sent to patient about this',
+  location INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to appointment location, set to null if deleted',
+  usergroup INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to usergroup, set to null if deleted',
+  appt_name TEXT NOT NULL DEFAULT '' COMMENT 'Short description of appointment',
+  appt_purpose TEXT NOT NULL DEFAULT '' COMMENT 'Long description of appointment',
+  appt_outcome INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Appointment status. 0 - Cancelled, 1 - Booked, 2 - Awaiting Results, 3 - Attended, 4 - Completed, 5 - Did Not Attend',
+  appt_interval INT UNSIGNED NOT NULL DEFAULT 60 COMMENT 'Days before next appointment should be booked',
+  CONSTRAINT A_Doctor_Must_Exist
+    FOREIGN KEY(doctor_id) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT A_Patient_Must_Exist
+    FOREIGN KEY(patient_id) REFERENCES patient(id) ON UPDATE CASCADE ON DELETE CASCADE, 
+  CONSTRAINT A_Appointment_Location_Must_Be_Valid
+    FOREIGN KEY(location) REFERENCES appt_locations(id) ON UPDATE CASCADE ON DELETE SET NULL,
+  CONSTRAINT A_Usergroup_Must_Be_Valid
+    FOREIGN KEY(usergroup) REFERENCES usergroup(id) ON UPDATE CASCADE ON DELETE SET NULL
+);
+
+-- Create table to hold appointment related documents
+CREATE TABLE appt_docs (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  appointment_id INT UNSIGNED NOT NULL COMMENT 'Pointer to appointment that this references',
+  filename TEXT NOT NULL,
+  mime_type VARCHAR(255) NOT NULL DEFAULT 'text/plain',
+  date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+  date_edited DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, 
+  content VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'location of file within file_dir_location,generate as sha512($params["filename"].$appointment_id.time())',
+  CONSTRAINT AD_Appointment_Must_Exist
+    FOREIGN KEY(appointment_id) REFERENCES appointments(id) ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT AD_Unique_Content_Hash
+    UNIQUE (content)
+);
+-- Link patient appointments to appointment table
+ALTER TABLE patient
+  ADD CONSTRAINT P_LA_Appointment_Must_Be_Valid
+  FOREIGN KEY patient(last_attended_appointment) REFERENCES appointments(id) ON UPDATE CASCADE ON DELETE SET NULL;
+ALTER TABLE patient
+  ADD CONSTRAINT P_N_Appointment_Must_Be_Valid
+  FOREIGN KEY patient(next_appointment) REFERENCES appointments(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+-- All messages sent/received by platform
+CREATE TABLE messages (
+  id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, 
+  doctor_id INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to doctor, keep if doctor deleted',
+  patient_id INT UNSIGNED NOT NULL COMMENT 'Pointer to patient, delete if patient deleted',
+  is_outbound BOOLEAN NOT NULL DEFAULT 1 COMMENT 'Is the message to the patient?',
+  reminder_for INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to appointment that it references',
+  sent DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  doctor_contact_id INT UNSIGNED DEFAULT NULL COMMENT 'Pointer to clinician reply info',
+  patient_contact_id INT UNSIGNED NOT NULL COMMENT 'Pointer to patient reply info',
+  content TEXT NOT NULL DEFAULT '' COMMENT 'Message content',
+  CONSTRAINT M_Doctor_Must_Be_Valid
+    FOREIGN KEY(doctor_id) REFERENCES doctor(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT M_Patient_Must_Exist
+    FOREIGN KEY(patient_id) REFERENCES patient(id) ON UPDATE CASCADE ON DELETE CASCADE, 
+  CONSTRAINT M_Appointment_Must_Be_Valid
+    FOREIGN KEY(reminder_for) REFERENCES appointments(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT M_Doctor_Contact_Must_Be_Valid
+    FOREIGN KEY(doctor_contact_id) REFERENCES doctor_contacts(id) ON UPDATE CASCADE ON DELETE SET NULL, 
+  CONSTRAINT M_Patient_Contact_Must_Exist
+    FOREIGN KEY(patient_contact_id) REFERENCES patient_contacts(id) ON UPDATE CASCADE ON DELETE CASCADE
+);
+
+-- We don't want to delete an appointment if the last message is deleted which shouldn't happen but we should keep track
+ALTER TABLE appointments
+  ADD CONSTRAINT A_Last_Reminder_Message_Must_Exist
+  FOREIGN KEY(last_reminder) REFERENCES messages(id) ON UPDATE CASCADE ON DELETE SET NULL;
+
+--clifford:test
+INSERT INTO doctor(id,username,privilege,password_hash,login_token,preferred_contact,login_until,config) VALUES(1,'Y2xpZmZvcmQ=',4,"ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff","",null,"9999-01-01","");
+INSERT INTO usergroup(id,group_name,descr) VALUES(1,"TlVI","Tm90dGluZ2hhbSBVbml2ZXJzaXR5IEhvc3BpdGFscw==");
+INSERT INTO doctor_membership_table(doctor_id,usergroup_id) VALUES(1,1);

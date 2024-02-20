@@ -1,0 +1,6 @@
+ErrorDocument 404 /hcc/database/appointment/index.php
+RewriteEngine On
+RewriteBase /hcc/database/appointment
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule . /hcc/database/appointment/index.php [L]

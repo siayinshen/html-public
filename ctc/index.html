@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="icon" href="data:;base64,iVBORw0KGgo=">
+<title>CTC Report Generator</title>
+<style>
+.debug{
+  border: 2px solid black
+}
+a{
+  text-decoration: none;
+}
+body{
+  background: #f3f3f3
+}
+input[type=number]{
+  width: 4em;
+  text-align: center;
+}
+.sec-header{
+  font-weight: bold;
+  font-size: 1.2em;
+}
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Old versions of Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently
+                                  supported by Chrome, Edge, Opera and Firefox */
+}
+table {
+  border-collapse: collapse;
+}
+td{
+  border: 2px solid brown;
+  text-align: center;
+  padding: 0;
+  padding: 0.2em 1em;
+}
+.ts{
+  border: none;
+}
+.th{
+  background:rgba(150,75,0,0.5);
+  font-weight: bold;
+}
+textarea{
+  min-width: 50%;
+  max-width: 50%;
+  min-height: 4em;
+}
+svg>g>rect{
+  cursor:pointer;
+}
+pre,textarea,input{
+  font-family: sans-serif;
+}
+
+</style>
+</head>
+<body>
+  <h1 class="noselect">CT colonoscopy reporting tool (BCSP guidance)</h1>
+  <p><a href="audit">Click here for the paired audit tool.</a></p>
+  <form class="noselect">
+    <input id="ctcacode" type="text" value="" placeholder="Input code here..."></input>
+    <input type="button" value="Copy Code" onclick="clip(document.getElementById('ctcacode').value)"></input>
+    <input type="button" value="Load Code" onclick="ctc.loadCode(document.getElementById('ctcacode').value)"></input>&nbsp;
+    <input type="reset" value="Clear Everything" onclick="window.location.reload()"></input>
+    <p>
+      <span class="sec-header">Indication:</span><br>
+      <span class="sec-item">CTC indication:
+        <select id="ct_indication">
+          <option selected="" value="0">BCSP</option>
+          <option value="1">symptomatic</option>
+        </select>
+      </span><br>
+    </p>
+
+    <p>
+      <span class="sec-header">Technique:</span><br>
+      <span class="sec-item">Operator Name:
+        <input id="ct_operator" type="text" maxlength='65525' placeholder="Type a name..."></input>
+      </span><br>
+      <span class="sec-item">Tube location:
+        <select id="ct_intubation_loc">
+          <option selected="" value="0">Rectal</option>
+          <option value="1">Stomal</option>
+        </select>
+      </span><br>
+      <span class="sec-item">Oral contrast:
+        <input type="number" min="70" step="10" max="65535" id="ct_oral_contrast_vol" placeholder="Volume in mL" value="200"></input>mL 
+        <select id="ct_oral_contrast_type">
+          <option selected="" value="0">Gastrografin</option>
+        </select>
+      </span><br>
+      <span class="sec-item">
+        <label for="ct_iv_contrast">IV contrast?</label>
+        <input type="checkbox" id="ct_iv_contrast"></input>
+      </span><br>
+      <span class="sec-item">Buscopan given:
+        <input type="number" min="0" id="ct_buscopan" placeholder="Dose in mg" value="20" step="20" max="255"></input>mg 
+      </span><br>
+      <span class="sec-item">Views:<br>
+        <label for="ct_view_supine">Supine</label>
+        <input type="checkbox" id="ct_view_supine" checked="checked"></input><br>
+        <label for="ct_view_lld">LLD</label>
+        <input type="checkbox" id="ct_view_lld" checked="checked"></input><br>
+        <label for="ct_view_rld">RLD</label>
+        <input type="checkbox" id="ct_view_rld"></input><br>
+        <label for="ct_view_prone">Prone</label>
+        <input type="checkbox" id="ct_view_prone"></input>
+      </span><br>
+      <span class="sec-item">
+        <label for="ct_balloon_deflated">Balloon deflated on one view?</label>
+        <input type="checkbox" id="ct_balloon_deflated" checked="checked"></input>
+      </span><br>
+      <span class="sec-item">
+        <label for="ct_paired_ct_chest">CT Chest on the same day?</label>
+        <input type="checkbox" id="ct_paired_ct_chest"></input>
+      </span><br>
+    </p>
+    <p>
+      <span class="sec-header">Adequacy:</span><br>
+      <span class="sec-item">
+        <label for="ct_faecal_tag">Adequate faecal tagging?</label>
+        <input type="checkbox" id="ct_faecal_tag" checked="checked"></input>
+      </span><br>
+      <span class="sec-item">
+        <label for="ct_insufflation">Adequate insufflation?</label>
+        <input type="checkbox" id="ct_insufflation" checked="checked"></input>
+      </span><br>
+      <span class="sec-item">
+        <label for="ct_completely_imaged">Fully imaged colon?</label>
+        <input type="checkbox" id="ct_completely_imaged" checked="checked"></input>
+      </span><br>
+      <span class="sec-item">Colonic motion artifact:
+        <select id="ct_motion_artifact">
+          <option selected="" value="0">none</option>
+          <option value="1">minimal</option>
+          <option value="2">severe (impairing interpretation)</option>
+        </select>
+      </span><br>
+    </p>
+    <p>
+      <span class="sec-header">Colonic findings:</span><br>
+      <svg id = "colon_image" width="435" height="435" viewBox="0 0 435 435"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <g
+     id="parent"
+     transform="translate(-174.85645,-217.19293)">
+    <path
+       style="opacity:1;fill:none;stroke:#504416;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:0.8;stroke-dasharray:none"
+       d="m 293.43765,553.15548 c -18.80525,7.40492 -32.89304,9.32185 -52.24293,-12.8451 -25.73652,3.55236 -41.07886,-11.20295 -42.37218,-34.50309 -19.58451,-20.88429 -11.65436,-31.73422 -8.35159,-45.27686 -15.58463,-16.10131 -14.36105,-33.54872 -3.56417,-51.21314 -9.57462,-17.66345 -11.21471,-37.26944 3.36125,-52.05496 -5.63513,-14.66491 -7.46316,-24.90781 0.0829,-40.31829 -3.54619,-14.54199 -10.38087,-31.23336 8.88599,-46.55551 0.088,-31.40387 24.97147,-53.23838 57.42248,-31.3204 24.43453,-13.49516 40.22731,-2.95801 53.20887,15.75861 15.5046,-12.59123 32.42161,-18.41285 53.96205,3.11707 25.05863,-10.84572 36.95197,1.75543 46.77391,12.03568 10.36676,-10.58229 21.79608,-23.07041 46.35853,-10.64052 15.48665,-17.54553 29.92514,-19.70388 50.83781,-9.40659 37.8158,-53.85757 80.8051,-0.89624 67.14898,26.258 20.20858,24.51379 12.50634,39.91998 9.26895,49.6744 20.5146,14.5004 21.45788,38.19138 12.06569,58.50275 14.99854,20.81665 6.73363,34.3024 -1.71886,48.67868 5.00999,15.02252 9.55574,26.46733 -9.12195,49.46149 15.96319,29.14417 -3.73776,61.48958 -41.79964,54.38213 -16.55749,17.7295 -35.51388,15.94614 -50.13279,8.46605 -11.07134,6.06834 -15.75369,11.55598 -31.2022,10.19048 0.34776,6.84329 3.54905,20.84745 -12.06339,38.96232 -9.00543,10.44885 0.3454,26.68465 -4.76564,36.55724 -6.56251,12.67629 -21.4024,18.06351 -32.8584,2.09834 -5.77558,-8.04888 2.46616,-22.39003 -2.30884,-32.74561 -5.00437,-10.85301 -13.05495,-14.5687 -14.75527,-23.163 -0.28484,-1.43974 -3.38222,-23.51033 -0.0775,-35.55893 -10.45917,-23.03784 7.92251,-56.1782 45.26647,-44.75902 26.01181,-18.99589 37.21882,-8.86826 45.64672,-4.29596 24.6601,-16.86136 35.30287,-8.39884 39.56558,-7.50488 3.33305,-4.00032 6.65447,-8.49434 9.9748,-13.03422 -12.43865,-9.98508 -7.43249,-31.92079 5.36319,-46.17293 -10.16817,-18.68463 -4.44951,-29.39619 2.21512,-41.57393 -9.80556,-12.21235 -13.06442,-26.86486 -4.78096,-46.38324 -29.04312,-15.70691 -15.1434,-40.07642 -17.20404,-47.22966 -5.08416,4.84515 -17.69366,33.03847 -51.77058,18.54937 -22.18398,20.20477 -39.71002,19.62558 -59.41647,-1.39103 -29.79081,27.30384 -44.37838,10.48152 -60.35012,2.30573 -34.45108,9.88054 -38.36342,-8.89481 -47.00656,-16.39074 -8.45461,4.90271 -21.70832,17.18183 -47.02197,2.79796 -0.99335,8.85105 -3.01722,16.6376 -6.68113,20.11386 8.94672,11.49597 8.13893,35.37372 -5.00446,47.99572 6.14764,17.9314 3.64111,32.68696 -5.24453,43.24598 5.8766,9.07482 12.75076,22.6012 5.3758,44.00906 13.36803,14.39484 9.96341,20.98528 11.41276,26.67552 4.98362,2.63189 5.7212,6.70572 8.72282,10.54576 12.99165,-4.33751 26.15716,2.24054 33.72444,9.57472 29.2095,-15.97721 57.00899,3.29908 54.68192,32.1347 -2.32708,28.83562 -35.82094,41.8218 -59.51087,22.24599 z"
+       id="colon"
+       sodipodi:nodetypes="ccccccccccccccccccccccsssssccccccccccccccccccccczcc" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="0_cecum"
+       width="91.520653"
+       height="95.708145"
+       x="265.5636"
+       y="473.97534" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="1_asc_prox"
+       width="88.505226"
+       height="109.748"
+       x="177.05836"
+       y="459.93546"
+       ry="0" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="2_asc_mid"
+       width="88.505219"
+       height="110.49001"
+       x="177.05836"
+       y="349.44543" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="3_asc_dist"
+       width="88.505241"
+       height="42.239357"
+       x="177.05836"
+       y="307.20609" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="4_hepatic_flex"
+       width="89.05407"
+       height="83.347923"
+       x="176.50952"
+       y="223.85815" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="5_trans_prox"
+       width="81.710838"
+       height="98.160011"
+       x="265.5636"
+       y="225.14041" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="6_trans_mid"
+       width="111.11193"
+       height="87.523697"
+       x="347.25992"
+       y="241.00371" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="7_trans_dist"
+       width="62.636604"
+       height="103.38525"
+       x="458.37183"
+       y="225.14215" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="8_splenic_flex"
+       width="87.428284"
+       height="82.063934"
+       x="521.00842"
+       y="225.14215" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="9_desc_prox"
+       width="87.428276"
+       height="38.85537"
+       x="521.00842"
+       y="307.20609" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="10_desc_mid"
+       width="87.428261"
+       height="66.248108"
+       x="521.00842"
+       y="346.06146" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="11_desc_dist"
+       width="87.428261"
+       height="73.11924"
+       x="521.00842"
+       y="412.30957" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="12_sigmoid_prox"
+       width="87.428284"
+       height="70.375641"
+       x="521.00842"
+       y="485.4288" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="13_sigmoid_mid"
+       width="47.013573"
+       height="81.950455"
+       x="473.99484"
+       y="472.10263" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="14_sigmoid_dist"
+       width="86.074883"
+       height="81.950447"
+       x="387.91995"
+       y="472.10263"
+       ry="0" />
+    <rect
+       style="fill:#f00;fill-opacity:0;stroke:none"
+       id="15_rectum"
+       width="86.074883"
+       height="91.121529"
+       x="387.91995"
+       y="554.0531" />
+  </g>
+</svg><br>
+      <p>
+        <table id="polyp_table">
+          <tr><td class="ts"><i>Click anywhere on the colon to add a polyp...</i></td></tr>
+        </table>
+      </p>
+      <span class="sec-item">Appendix:
+        <select id="ct_appendix">
+          <option selected="" value="0">normal</option>
+          <option value="1">indeterminate</option>
+          <option value="2">abnormal</option>
+          <option value="3">not present</option>
+        </select>
+      </span><br>
+      <span class="sec-item">Additional comments:<br>
+        <textarea id="ct_colon_comments" maxlength='65535'></textarea>
+      </span><br>
+    </p>
+    <p>
+      <span class="sec-header">Extra colonic findings:</span><br>
+      <span class="sec-item">E code:
+        <select id="ct_extracolon_code">
+          <option selected="" value="1">E1 - Normal, anatomic or post-surgical variant</option>
+          <option value="2">E2 - Incidental, unimportant/already known</option>
+          <option value="3">E3 - New incompletely  characterized finding (further investigation according to local protocol)</option>
+          <option value="4">E4 - Potentially important new finding, requires further action</option>
+          <option value="5">E5 - Significant new finding identified</option>
+        </select>
+      </span><br>
+      <span class="sec-item">Findings:<br>
+        <textarea id="ct_extracolon_comments" maxlength='65535'></textarea>
+      </span><br>
+    </p>
+    <p>
+      <span class="sec-header">Conclusion:</span><br>
+        <textarea id="ct_conclusion" maxlength='65535'></textarea>
+      </span><br>
+    </p>
+  </form>
+  <p>
+    <span class="sec-header noselect">Report:</span><br>
+    <pre id="report"><i>This space intentionally left blank.</i><br></pre>
+  </p>
+  <script>
+    //reset form to avoid bugged state
+    document.querySelector("form").reset()
+    //copy to clipboard
+    function clip(what){
+      try{
+        navigator.clipboard.writeText(what)
+      }catch(e){
+        console.warn("Pastejacking not allowed in non-https or non localhost context.")
+      }
+    }
+/*
+    //string to uint8array
+    function stu(s) {
+      //convert unicode to uri encoding
+      //replace percent encoded bytes with equivalent single byte characters
+      let binstr = encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, function(match, p1) {
+        return String.fromCharCode('0x' + p1);
+      });
+      var ua = new Uint8Array(binstr.length);
+      for(let c=0;c<ua.length;c++){
+        ua[c] = binstr[c].charCodeAt(0);
+      }
+      return ua;
+    }
+    //uint8array to string
+    function uts(ua) {
+      let binstr = Array.prototype.map.call(ua, function (ch) {
+        return String.fromCharCode(ch);
+      }).join('');
+      let escstr = binstr.replace(/(.)/g, function (m, p) {
+        let code = p.charCodeAt(p).toString(16).toUpperCase();
+        if (code.length < 2) {
+            code = '0' + code;
+        }
+        return '%' + code;
+      });
+      return decodeURIComponent(escstr);
+    }
+*/
+    //string to uint8array
+    function stu(s) {
+      let res = []
+      for(let i=0;i<s.length;i++){
+        res = [...res,...ctu8(s[i])]
+      }
+      return res;
+    }
+    //uint8array to string
+    function uts(ua) {
+      let str=""
+      let ptr=0
+      while(ptr < ua.length){
+        let cpt="" //binary rep of codepoint we are trying to do
+        let prefix=ua[ptr].toString(2) //read one byte and get ready to read next byte
+        ptr++ 
+        if(prefix[0] =="0" || prefix.length <= 7){//if single byte...
+          cpt = prefix
+        }else{//if multibyte...
+          while(prefix[0] =="1" && prefix[1] =="1"){ //off by one
+            prefix=prefix.slice(1) //whittle one bit off
+            cpt += ua[ptr].toString(2).slice(2) //append tail to cpt
+            ptr++
+          }
+          cpt = prefix.slice(2) +cpt //readd whittled prefix byte with last leading bit removed
+        }
+        str += String.fromCodePoint(parseInt(cpt,2))
+      }
+      return str
+    }
+    
+    //string to uint8array huffman
+    function stu2(s){
+      let chars = [] //list of [chars, freqs, initial idx,huffman tree ixx] we encounter
+      let maps = [] //keeps track which character maps to what
+      for(let i=0;i<s.length;i++){
+        let idx = chars.findIndex(x=>(x[0]==s[i]))
+        if(idx == -1){ //new character found
+          idx=chars.length
+          chars.push([s[i],1,idx,""])
+        }else{
+          chars[idx][1] += 1 //increment character count
+        }
+        maps.push(idx)
+      }
+      do{
+        chars.sort((a,b)=>(b[1]<a[1])) //sort ascending
+        let fsum = chars[0][1] + chars[1][1] //sum of freqs we are combining
+        chars[0][3] = "0"+ chars[0][3]
+        chars[1][3] = "1"+ chars[1][3]
+        chars[0][1] = fsum
+        chars[1][1] = fsum
+      }while(chars[0][1]<=s.length) //end when accounted for all letters
+      maps = maps.map(x=>chars.find(y=>y[2]===x)[3]) //map to huffman code
+      let buf = ""
+      let uintbuf = []
+      for(let i=0;i<chars.length;i++){
+        //character then huffman tree idx
+        //todo: demarcate characters
+        buf = buf + chars[i][0].codePointAt(0).toString(2) + chars[i][3] //no need to toString(2) as alr binary
+        while(buf.length >=8){//slice off byte from the head at a time
+          uintbuf.push(parseInt(buf.substr(0,8),2)) //get first 8 chars
+          buf = buf.substr(8) //skip first 8 chars
+        }
+      }
+      for(let i=0;i<maps.length;i++){
+        buf = buf + maps[i] //no need to toString(2) as alr binary
+        if(buf.length >=8){//slice off byte from the head at a time
+          uintbuf.push(parseInt(buf.substr(0,8),2)) //get first 8 chars
+          buf = buf.substr(8) //skip first 8 chars
+        }
+      }
+      uintbuf.push(parseInt(buf,2)) //push the rest in - implicitly left padded with zero.
+      return [chars,maps, uintbuf, (uintbuf.length)/s.length]
+    }
+    function uts2(ua){
+      let chars = ua[0]
+      let maps = ua[1]
+      let pchars = ua[2]
+      return maps = maps.map(x=>chars[x][0]).join("")
+    }
+    //encode unicode codepoints as string
+    //first byte prefix is 0, 110,1110,11110 for 1 to 4 bytes respectively
+    //subsequent bytes are prefixed by 10
+    function ctu8(char){
+      let cpt = char.codePointAt(0).toString(2) //convert codepoint to binary
+      let strea=[]
+      while (cpt[0]==0){cpt=cpt.slice(1)} //remove leading ones
+      let prefix="10"  //ones to add to prefix
+      if (cpt.length<=7){//single byte unicode
+        strea=[parseInt(cpt,2)];
+      }else{
+        while (cpt.length>6){
+          strea.push(parseInt("10"+cpt.slice(-6),2)); //add continuation byte to stream
+          cpt=cpt.slice(0,-6);
+          prefix = "1"+prefix
+        }
+        //does prefix fit? if not, emit another byte 
+        if(prefix.length+cpt.length>8){
+          while((cpt.length+2)%8!=0){cpt="0"+cpt} //pad remaining cpt
+          strea.push(parseInt("10"+cpt,2));
+          prefix = "1"+prefix
+          //blank out cpt
+          cpt = "0"
+        }
+        //final byte
+        while((cpt.length+prefix.length)%8!=0){cpt="0"+cpt} //pad remaining cpt
+        strea.push(parseInt(prefix+cpt,2));
+        strea.reverse()
+      }
+      return new Uint8Array([...strea])
+    }
+    //convert utf8 encoded uint8array to char
+    function u8toc(stream){
+      if(stream.length==1){
+        return stream[0]
+      }else{
+        let number = ""
+        for(let i=0;i<stream.length;i++){
+          if(i==0){
+            number += stream[i].toString(2).slice(stream.length+2)  //remove no of bits in prefix
+          }else{
+            number += stream[i].toString(2).slice(2) //remove top 2 bits from subsequent bytes
+          }
+        }
+        return String.fromCodePoint(parseInt(number,2))
+      }
+    }
+/*
+    //arraybuffer to b64
+    function t64(bin){
+      let ui8 = new Uint8Array(bin)
+      return btoa(String.fromCodePoint(...ui8)).replace("=","");
+      //return btoa(new Uint8Array(bin).reduce((x, byte) => x + String.fromCodePoint(byte), '')).replace("=","");
+    }
+    //b64 to arraybuffer
+    function f64(txt){
+      let ui8 = Uint8Array.from(atob(txt), (m) => m.codePointAt(0));
+      //let ui8 = Uint8Array.from(atob(txt), c => c.codePointAt(0))
+      return ui8.buffer;
+    }
+*/
+    //zero pad to left
+    function pad(n, width) {n = n + '';return n.length >= width ? n : new Array(width - n.length + 1).join(0) + n}
+    
+    //base64 to arraybuffer
+    function f64(input){
+      let mapping = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+      let stream = "" //binary stream
+      let output = []
+      let discard_bits = 0
+      //remove padding and keep track of bits to remove
+      while(input.slice(-1)=="="){
+        input = input.substr(0,input.length-1)
+        discard_bits += 2
+      }
+      input = input.replace(/(\!)/g,"AAA") //replace groups of 3A's with special char
+      input = input.replace(/(\?)/g,"AA") //replace groups of 2A's with special char
+      for (let i = 0; i < input.length; i++) {
+        stream += pad((mapping.indexOf(input[i]) % 64).toString(2),6); //we add 6 bits at a time
+      }
+      stream = stream.substr(0,stream.length-Math.min(4,discard_bits)) //remove discard bits
+      stream = stream.substr(0,stream.length-stream.length%8) //trim enough padding bits to 8 bit align
+      for (let i = 0; i < stream.length; i+=8){
+        output.push(parseInt(stream.slice(i,i+8),2)) //read byte at a time
+      }
+      let ui8 = new Uint8Array([...output])
+      return ui8.buffer;
+    }
+    //arraybuffer to base64
+    function t64(bin){
+      let ui8 = new Uint8Array(bin)
+      let mapping = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
+      let output = ""
+      let stream = ""
+      //convert input to binary stream
+      for (let i = 0; i < ui8.length; i++) {
+        stream += pad(ui8[i].toString(2),8); //push arraybuffer to bitstream 8 bytes at a time
+      }
+      while(stream.length%6!=0){stream+="0"} //pad stream to 6 bit align
+      for (let i = 0; i < stream.length; i+=6) {
+        output += mapping[parseInt(stream.slice(i,i+6),2)]; //push 6 bit code point to output
+      }
+      //while(output.length%4!=0){output+="="} //pad output to 4 character code point
+      output = output.replace(/(A){3}/g,"!") //replace groups of 3A's with special char
+      output = output.replace(/(A){2}/g,"?") //replace groups of 2A's with special char
+      return output;
+    }
+    function checkEndian() {
+      let arrayBuffer = new ArrayBuffer(2);
+      let uint8Array = new Uint8Array(arrayBuffer);
+      let uint16array = new Uint16Array(arrayBuffer);
+      uint8Array[0] = 0xAA; // set first byte
+      uint8Array[1] = 0xBB; // set second byte
+      if(uint16array[0] === 0xBBAA) return 0; //little_endian
+      if(uint16array[0] === 0xAABB) return 1; //big_endian
+      else{return -1};
+    }
+    function arrToText(arr_orig){
+      if(arr_orig.length<=0){return ""}
+      if(arr_orig.length==1){return ""+arr_orig[0]}
+      let arr = [...arr_orig] //copy array or else we will change supplied array
+      let tmp = arr.pop()
+      arr[arr.length-1]+= (" and " + tmp)
+      return arr.join(", ")
+    }
+    class ScanAdequacy{
+      constructor(){
+        this.faecal_tag=true
+        this.insufflation=true
+        this.completely_imaged=true
+        this.motion_artifact=[0,0,0,0] //array of motion artifacts in each view
+        this.getAdequacy = function(){
+          let ma = [...this.motion_artifact] //shallow copy to prevent splatting
+          return (this.faecal_tag && this.insufflation && this.completely_imaged && ma.reduce((acc,x)=>Math.max(acc,x))<=1)
+        }
+        this.updateDocument=function(){
+          document.getElementById("ct_faecal_tag").checked=this.faecal_tag
+          document.getElementById("ct_insufflation").checked=this.insufflation
+          document.getElementById("ct_completely_imaged").checked=this.completely_imaged
+          document.getElementById("ct_motion_artifact").value=this.motion_artifact[0]
+        }
+        // v1 struct [2]
+        // byte 0 (int8) 0xFF - version = 0xFF
+        // byte 1, bits: 0=faecal tag, 1=insufflation, 2=completely_imaged, [3-7]=reserved
+        // byte 2, bits: [0-1] motion_artifact[0] [2-3] motion_artifact[1] [4-5] motion_artifact[2] [6-7] motion_artifact[3]
+        this.toBinary=function(){
+          let byteOne = 0
+          let byteTwo = 0
+          if(this.faecal_tag){byteOne+=(1<<0)}
+          if(this.insufflation){byteOne+=(1<<1)}
+          if(this.completely_imaged){byteOne+=(1<<2)}
+          byteTwo += (this.motion_artifact[0]%3)*(1<<0)
+          byteTwo += (this.motion_artifact[1]%3)*(1<<2)
+          byteTwo += (this.motion_artifact[2]%3)*(1<<4)
+          byteTwo += (this.motion_artifact[3]%3)*(1<<6)
+          let res = new ArrayBuffer(3);
+          let ui8 = new Uint8Array(res);
+          ui8[0] = 0xFF - 0 //version 0
+          ui8[1] = byteOne
+          ui8[2] = byteTwo
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          let byteOne = 0
+          let byteTwo = 0
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          let ver = ui8[0]
+          byteOne = ui8[1]
+          byteTwo = ui8[2]
+          switch(ver){
+            case 255:
+              this.faecal_tag = (byteOne & (1<<0))>0
+              this.insufflation = (byteOne & (1<<1))>0
+              this.completely_imaged = (byteOne & (1<<2))>0
+              this.motion_artifact=[0,0,0,0]
+              for(let i=0;i<=3;i++){
+                this.motion_artifact[i] = (byteTwo & ((1<<i) + (1<<(i+1))))>>(i*2)
+              }
+              break;
+            default:
+              console.error("Unsupported version "+(0xFF-ui8[0])+" for adequacy object.")
+              break;
+          }
+          this.updateDocument()
+        }
+        this.toString= function(){
+          let adestr = 
+            "Faecal tagging " + (this.faecal_tag?"":"in") + "adequate.\n" +
+            "Insufflation " + (this.insufflation?"":"in") + "adequate.\n" +
+            "Colon " + (this.completely_imaged?"fully ":"incompletely ") + "imaged.\n" +
+            "Colonic motion artefact - " + 
+            ["none ","minimal ","severe (impairing interpretation) "][this.motion_artifact.reduce((acc,x)=>Math.max(acc,x))] +
+            "on all views."
+          return adestr
+        }
+      }
+    }
+    class ScanTechnique{
+      constructor(){
+        this.intubation_loc=0 //0=rectum, 1=stoma
+        this.operator=null
+        this.oral_contrast=[200,0] // mL of 0=gastrografin
+        this.iv_contrast=false
+        this.buscopan=20 //mg
+        this.positions=[true,true,false,false] //bitmap index into position_names
+        this.balloon_deflated=true
+        this.paired_ct_chest=false
+        this.position_names=["supine","LLD","RLD","prone"]
+        this.listPositions = function(){
+          let res = []
+          for(let i=0;i<this.position_names.length;i++){
+            if(this.positions[i]===true){
+              res.push(this.position_names[i])
+            }
+          }
+          return res
+        }
+        // v1 struct [8+n]
+        // byte 0, (int8) - 0xFF - version = 0xFF
+        // byte 1, bits: [0-1] intubation_loc [2] balloon_deflated [3] paired_ct_chest [4] iv_contrast [5-7] reserved
+        // byte 2, bits: [0] supine? [1] lld? [2] rld? [3] prone? [4-7] reserved
+        // byte 3, (int8) buscopan
+        // byte [4-5], (int16) gastrografin
+        // byte [6-7], (int16) len(operator)
+        // subsequent bytes: operator name [unicode] - not null terminated.
+        this.toBinary=function(){
+          let res = new ArrayBuffer(8);
+          let ui8 = new Uint8Array(res);
+          let ui16 = new Uint16Array(res);
+          let byteOne = 0
+          ui8[0] = 0xFF - 0 //version 0
+          byteOne += (this.intubation_loc%3)*(1<<0)
+          if(this.balloon_deflated){byteOne += (1<<2)}
+          if(this.paired_ct_chest){byteOne += (1<<3)}
+          if(this.iv_contrast){byteOne += (1<<4)}
+          ui8[1] = byteOne
+          let byteTwo = 0
+          for(let p=0;p<this.positions.length;p++){
+            if(this.positions[p]){byteTwo += (1<<p)}
+          }
+          ui8[2] = byteTwo
+          ui8[3] = Math.max(0,parseInt(this.buscopan))
+          ui16[2] = Math.max(0,parseInt(this.oral_contrast[0]))
+          
+          if(this.operator !== null){
+            let str = stu(this.operator)
+            if(str.length >=65525){
+              str= str.slice(0,65525)
+              console.error("Maximum operator name length reached - ignoring any after")
+            }
+            ui16[3] = str.length //set str length
+            ui8 = new Uint8Array([...ui8,...str]) //append string
+            res = ui8.buffer //reform res
+            //ui8 = new Uint8Array(res); //relink ui8 for next step
+          }
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            //ui8.reverse()
+          }
+          if(ui8.length%2 == 1){ //pad to 16 bit alignment
+            ui8 = new Uint8Array([...ui8,0])
+            bin = ui8.buffer
+          }
+          let ui16 = new Uint16Array(bin);
+          switch(ui8[0]){
+            case 255:
+              this.intubation_loc = (ui8[1] & 0b11)>>0
+              this.balloon_deflated = (ui8[1] & (1<<2))>0
+              this.paired_ct_chest = (ui8[1] & (1<<3))>0
+              this.iv_contrast = (ui8[1] & (1<<4))>0
+              for(let i=0;i<this.positions.length;i++){
+                this.positions[i] = (ui8[2] & (1<<i))>0
+              }
+              this.buscopan = ui8[3]
+              this.oral_contrast = [ui16[2],0]
+              let strlen = ui16[3]
+              this.operator = null
+              if(strlen>0){
+                this.operator = uts(ui8.slice(8,8+strlen))
+              }
+              break;
+            default:
+              console.error("Unsupported technique version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.updateDocument=function(){
+          document.getElementById("ct_operator").value=this.operator
+          document.getElementById("ct_intubation_loc").value=this.intubation_loc
+          document.getElementById("ct_oral_contrast_vol").value=this.oral_contrast[0]
+          document.getElementById("ct_iv_contrast").checked=this.iv_contrast
+          document.getElementById("ct_buscopan").value=this.buscopan
+          document.getElementById("ct_view_supine").checked=this.positions[0]
+          document.getElementById("ct_view_lld").checked=this.positions[1]
+          document.getElementById("ct_view_rld").checked=this.positions[2]
+          document.getElementById("ct_view_prone").checked=this.positions[3]
+          document.getElementById("ct_balloon_deflated").checked=this.balloon_deflated
+          document.getElementById("ct_paired_ct_chest").checked=this.paired_ct_chest
+        }
+        this.toString= function(){
+          return(
+          "Verbal consent and " + ["rectal ","stomal "][this.intubation_loc]+
+          "intubation and insufflation performed by: " + this.operator + ".\n"+
+          "Oral contrast: Total " + this.oral_contrast[0] + "mL " + ["gastrografin"][this.oral_contrast[1]] +".\n"+
+          "IV Contrast: " + (this.iv_contrast?"yes":"no - please note that lack of IV contrast limits the evaluation of solid organs and vasculature") + ".\n\n" +
+          "IV Buscopan: " + (this.buscopan<=0?"none.":this.buscopan + "mg.")+"\n" +
+          "Number of positions: " + this.listPositions().length + ".\n"+ 
+          "Position" + (this.listPositions().length==1?" ":"s ") + arrToText(this.listPositions()) + ".\n" +
+          "Balloon deflated on one view: " + (this.balloon_deflated?"yes":"no") + ".\n" +
+          "CT Chest on the same day: " + (this.paired_ct_chest?"yes":"no") + "."
+          )
+        }
+      }
+    }
+    class Scan{
+      constructor(){
+        this.indication=0 //0=BCSP, 1=symptomatic
+        this.startTime = performance.now()
+        this.interpretTime = 0
+        this.adequacy=new ScanAdequacy()
+        this.technique=new ScanTechnique()
+        this.polyps=[]
+        this.appendix=0
+        this.colon_comments=""
+        this.extracolon_code=1 //1=E1,2=E2,3=E3,4=E4, 5=E5
+        this.extracolon_comments=""
+        this.conclusion=""
+        // v1 struct [16]
+        // byte 0, (int8) 0xFF - version = 0xFF
+        // byte 1, (int8) indication
+        // byte 2, (int8) appendix 
+        // byte 3, (int8) extracolon_code 
+        // byte [4-5], (int16) polyp count
+        // byte [6-7], (int16) technique length
+        // byte [8-9], (int16) colon-comment length
+        // byte [10-11], (int16) extracolon comment length
+        // byte [12-13], (int16) conclusion comment length
+        // byte [14-16] adequacy.toBinary [3]
+        // [polyps]
+        // [technique]
+        // colon comment
+        // extracolon comment
+        // conclusion
+        // byte n, (int8) day
+        // byte n+1, (int8) month
+        // byte [n+2-n+3], (int16) year
+        // byte [n+4-n+5], (int16) seconds/2
+        // v2 struct only: byte [n+6 - n+9] (int32) elapsed time
+        this.toBinary = function(){
+          let res = new ArrayBuffer(14)
+          let ui8 = new Uint8Array(res)
+          let ui16 = new Uint16Array(res)
+          let adebin = new Uint8Array(this.adequacy.toBinary())
+          let tecbin = new Uint8Array(this.technique.toBinary())
+          let polbin = new Uint8Array(0)
+          let colcom = stu(this.colon_comments)
+          let ecolcom = stu(this.extracolon_comments)
+          let conc = stu(this.conclusion)
+          let date = new ArrayBuffer(10)
+          let date8 = new Uint8Array(date)
+          let date16 = new Uint16Array(date)
+          let d = new Date()
+          date8[0] = d.getDate()
+          date8[1] = d.getMonth()
+          date16[1] = d.getFullYear()
+          date16[2] = parseInt((d.getUTCHours()*3600+d.getMinutes()*60+d.getSeconds())/2)
+          //misaligned, calculate timestamp implicitly
+          let elapsed = parseInt(this.interpretTime)
+          if(elapsed > 0xFFFFFFFF){ //if >max int, keep at maxint
+            date16[3] = 0xFFFF
+            date16[4] = 0xFFFF
+          }else if(elapsed > 0){ //if negative or NaN, implicitly set to zero
+            date16[3] = elapsed & 0xFFFF
+            date16[4] = (elapsed & 0xFFFF0000) >> 16
+          }
+          if(this.polyps.length >=65535){
+            this.polyps = this.polyps.slice(0,65535)
+            console.error("Maximum polyp count reached - ignoring any after")
+          }
+          if(colcom.length >=65535){
+            colcom = this.colcom.slice(0,65535)
+            console.error("Maximum colcom length reached - ignoring any after")
+          }
+          if(ecolcom.length >=65535){
+            ecolcom = this.ecolcom.slice(0,65535)
+            console.error("Maximum ecolcom length reached - ignoring any after")
+          }
+          if(conc.length >=65535){
+            conc = this.conc.slice(0,65535)
+            console.error("Maximum conc length reached - ignoring any after")
+          }
+          for(let pp=0;pp<this.polyps.length;pp++){
+            let tmp = new Uint8Array(this.polyps[pp].toBinary())
+            polbin=[...polbin,...tmp]
+          }
+          ui8[0] = 0xFF - 1 //version 1
+          ui8[1] = Math.max(0,parseInt(this.indication))
+          ui8[2] = Math.max(0,parseInt(this.appendix))
+          ui8[3] = Math.max(0,parseInt(this.extracolon_code))
+          ui16[2] = Math.min(65535,Math.max(0,parseInt(this.polyps.length)))
+          ui16[3] = Math.max(0,parseInt(tecbin.length))
+          ui16[4] = Math.min(65535,Math.max(0,parseInt(colcom.length)))
+          ui16[5] = Math.min(65535,Math.max(0,parseInt(ecolcom.length)))
+          ui16[6] = Math.min(65535,Math.max(0,parseInt(conc.length)))
+          ui8=new Uint8Array([...ui8,...adebin,...tecbin,...polbin,...colcom,...ecolcom,...conc,...date8])
+          if(checkEndian()==1){//big endian, need to flip order in final assembly
+            console.warn("Big endian system, flipping output")
+            ui8.reverse()
+          }
+          return ui8.buffer
+        }
+        this.fromBinary = function(bin){
+          this.startTime = performance.now() //reset start time
+          let ui8 = new Uint8Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            console.warn("Big endian system, flipping input")
+            ui8.reverse()
+            bin=ui8.buffer
+          }
+          if(ui8.length%2 == 1){ //pad to 16 bit alignment
+            ui8 = new Uint8Array([...ui8,0])
+            bin = ui8.buffer
+          }
+          let ui16 = new Uint16Array(bin);
+          switch(ui8[0]){
+            case 254:
+            case 255:
+              this.indication = ui8[1]
+              this.appendix = ui8[2]
+              this.extracolon_code = ui8[3]
+              //clear extant polyps
+              let pCopy = ctc.polyps.map(x=>x.id) //use reference copy to prevent loop from ending early
+              for(let p=0;p<pCopy.length;p++){
+                polypRemove(pCopy[p])
+              }
+              //init empty array
+              this.polyps = []
+              let adebin = new Uint8Array([ui8[14],ui8[15],ui8[16]])
+              this.adequacy.fromBinary(adebin.buffer)
+              let ptr = 17 //offset into data array we are reading
+              let tecbin = ui8.slice(ptr,ptr+ui16[3]) //return uint8array of length ui16[3] from offset 15
+              this.technique.fromBinary(tecbin.buffer)
+              ptr += ui16[3] //current offset
+              for(let p=0;p<ui16[2];p++){
+                polypCreate() //creates ui elements and push polyp into array
+                let pbin = ui8.slice(ptr,ptr+16)
+                this.polyps[p].fromBinary(pbin.buffer) //loads polyp with standard values - implicitly will update ui elems
+                ptr += 16
+              }
+              let colcom = ui8.slice(ptr,ptr+ui16[4])
+              this.colon_comments = uts(colcom)
+              ptr += ui16[4]
+              let ecolcom = ui8.slice(ptr,ptr+ui16[5])
+              this.extracolon_comments = uts(ecolcom)
+              ptr += ui16[5]
+              let conc = ui8.slice(ptr,ptr+ui16[6])
+              this.conclusion = uts(conc)
+              ptr += ui16[6]
+              let d = new Date()
+              d.setDate(ui8[ptr])
+              d.setMonth(ui8[ptr+1])
+              d.setYear((ui8[ptr+3])*256+(ui8[ptr+2]))
+              let sec = (ui8[ptr+5]*256+ui8[ptr+4])*2
+              d.setHours(Math.floor(sec/3600))
+              sec -= (Math.floor(sec/3600)*3600)
+              d.setMinutes(Math.floor(sec/60))
+              d.setSeconds(sec - Math.floor(sec/60)*60)
+              //console.log(d)
+              ptr += 6
+              if(ui8[0] <= 254){ //for versions > 1, calculate elapsed time
+                this.interpretTime = ((ui8[ptr+3])*0x1000000+(ui8[ptr+2])*0x10000+(ui8[ptr+1])*0x100+(ui8[ptr]))
+                this.startTime = performance.now() - this.interpretTime*1000 //push start time back by interpretTime - offset
+                //console.log(this.interpretTime)
+              }else{
+                this.interpretTime=0
+                this.startTime = performance.now()
+              }              
+              break;
+            default:
+              console.error("Unsupported scan version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.toCode = function(){
+          let code = "CTCA|" + t64(this.toBinary()) + "|ACTC"
+          document.getElementById("ctcacode").value = code
+          return code
+        }
+        this.loadCode = function(txt){
+          txt = txt.match(/(CTCA\|)[A-Za-z0-9\+\/\=\!\?]+(?=\|ACTC$)/gm)[0]
+          txt = txt.slice(5,txt.length)
+          this.fromBinary(f64(txt))
+          //update displayed report
+          document.getElementById("report").innerHTML=ctc.toString()
+          //write displayed report to clipboard
+          clip(document.getElementById("report").innerHTML)
+        }
+        this.updateDocument = function(){
+          document.getElementById("ct_indication").value=parseInt(this.indication)
+          document.getElementById("ct_appendix").value=this.appendix
+          document.getElementById("ct_extracolon_code").value=this.extracolon_code
+          document.getElementById("ct_colon_comments").value=this.colon_comments
+          document.getElementById("ct_extracolon_comments").value=this.extracolon_comments
+          document.getElementById("ct_conclusion").value=this.conclusion
+        }
+        this.get_c_code = function(){
+          let c_value = 0 //set baseline c value as Cx
+          if(this.adequacy.getAdequacy()){
+            c_value = 1 //C1
+          }
+          let polyp_cnt = this.polyps.filter(x=>(x.size>=1)).length //do not count polyps <=1 mm
+          if(polyp_cnt == 0){
+            return c_value //and avoid reducing against an empty array if there really are no polyps
+          }else{
+            let max_size = this.polyps[0].size
+            let got_stricture = false
+            let got_cancer = [false,true] // [is there cancer?, is it known?]
+            for(let i = 0;i< this.polyps.length;i++){//iterate over polyps
+              max_size = Math.max(this.polyps[i].size,max_size)
+              got_stricture = (got_stricture || this.polyps[i].is_type==1)
+              got_cancer[0] = (got_cancer[0] || this.polyps[i].is_type==2)
+              got_cancer[1] = (got_cancer[1] && (this.polyps[i].is_type==2 && this.polyps[i].known)) //all must be known
+            }
+            if(!Array.isArray(got_cancer)||got_cancer.length!==2||isNaN(got_cancer[0])||isNaN(got_cancer[1]) ){console.error("got_cancer is invalid")}
+            if(got_cancer[0]){//highest value if cancer is present, no need for further calcs
+              if(got_cancer[1]){//was at least one of the cancers known?
+                return 8 //C5a
+              }else{
+                return 9 //C5b
+              }
+            }
+            if(isNaN(got_stricture)){console.error("got_stricture is invalid")}
+            if(got_stricture){c_value = 5} //update c value to C3c if got stricture
+            // nb - nan values break the logic
+            if(isNaN(max_size)){console.error("max_size is invalid")}
+            if(polyp_cnt<=2){ //handle 1-2 polyp case, as 0 polyp case already returned
+              if(max_size <= 5){
+                return c_value //Cx or C1
+              }else if(max_size < 10){
+                return Math.max(c_value,2) //C2
+              }else{
+                return Math.max(c_value,4) //C3b
+              }
+            }else if(max_size < 10){ //handle 1-9mm case for >=3 polyp
+              if(polyp_cnt >=5){
+                return Math.max(c_value,6) //C4a
+              }else if(max_size >= 1){
+                return Math.max(c_value,3) //C3a
+              }else{
+                return c_value
+              }
+            }else{
+              return Math.max(c_value,7) //C4b
+            }
+          }
+        }
+        this.toString=function(){
+          let polypString = ""
+          for(let i=0;i<ctc.polyps.length;i++){
+            polypString += ctc.polyps[i].toString()
+          }
+          //implicitly update interpretTime each time this function is called, which should happen whenever the form is updated
+          this.interpretTime = (performance.now()-this.startTime)/1000
+          //if polypString is still empty after this assume no polyp worth reporting
+          return(
+            "Indication:\n"+
+            "CTC indication: " + ["BCSP","symptomatic"][this.indication] + "\n\n"+
+            "Technique:\n"+
+            this.technique.toString() + "\n\n"+
+            "Adequacy:\n"+
+            this.adequacy.toString() + "\n\n"+
+            "Colonic findings:\n"+
+            ((this.polyps.length>0&&polypString!=="")?polypString:"No colonic polyp, mass or bowel wall thickening.\n")+
+            "Appendix " + ["normal","indeterminate","abnormal","not present"][this.appendix] + ".\n"+
+            (this.colon_comments==""?"":("Additional comments: "+this.colon_comments+"\n")) + "\n"+
+            "Extra colonic findings:\n"+
+            (this.extracolon_comments==""?"None\n":(this.extracolon_comments+"\n")) + "\n"+
+            "Conclusion:\n"+
+            (this.conclusion==""?"":this.conclusion+"\n")+
+            "C Code: " + ["Cx ","C1 ","C2 ","C3a ","C3b ","C3c ","C4a ","C4b ","C5a ","C5b "][this.get_c_code()]+
+            ["","E1 ","E2 ","E3 ","E4 ","E5 "][this.extracolon_code]+
+            (this.adequacy.getAdequacy()?"A1":"A0") + "\n\n" + 
+            (this.toCode())
+          )
+        }
+      }
+    }
+    class Polyp{
+      constructor(){
+        this.id = null //integer reference, is immutable
+        this.is_type = 0 //0=polyp,1=stricture,2=cancer
+        this.height = 0 //mm
+        this.size = 1 //mm
+        this.morphology = 0 //0=no stalk, 1=broad based, 2=stalk
+        this.known = false //is this known on previous imaging?
+        this.depressed_centre = false
+        this.colon_loc = [0,0,0] //xy coordinates on colon image followed by named location in colon
+        this.image_nums = [0,0,0] //[position, series, image]
+        this.locate=function(arr){
+          return(["Caecum","Proximal ascending colon","Ascending colon","Distal ascending colon","Hepatic flexure","Proximal transverse colon","Transverse colon","Distal transverse colon","Splenic flexure","Proximal descending colon","Descending colon","Distal descending colon","Proximal sigmoid colon","Sigmoid colon","Distal sigmoid colon","Rectum"][arr[2]])
+        }
+        this.getMorphology=function(){
+          if(this.height >= 2.5){//grade I
+            return this.morphology //implied 1:1 correspondence to Is/Isp/Ip
+          }else{ //grade II
+            if(this.depressed_centre){
+              return 4 //IIa+c
+            }else{
+              return 3 //IIa
+            }
+          }
+        }
+        // v1 struct [16]
+        // byte 0, bits: (int8) 0xFF - version = 0xFF
+        // byte 1, bits: [0-2] is_type [3-5] morphology [6] depressed_centre [7] reserved
+        // byte [2-3], (int16) colon_loc[0]
+        // byte [4-5], (int16) colon_loc[1]
+        // byte 6 (int8) colon_loc[2]
+        // byte 7, (int8) image_nums[1]
+        // byte [8-9], (int16) image_nums[2]
+        // byte [10-11], (int16) height*10
+        // byte [12-13], (int16) size*10
+        // byte 14 (int8) image_nums[0]
+        // byte 15 -reserved
+        // v2 struct [16]
+        // byte 0, bits: (int8) 0xFF - version = 0xFE
+        // byte 1, bits: [0-2] is_type [3-5] morphology [6] depressed_centre [7] known
+        this.toBinary=function(){
+          let res = new ArrayBuffer(16);
+          let ui8 = new Uint8Array(res);
+          let ui16 = new Uint16Array(res);
+          ui8[0] = 0xFF - 1 //version
+          let byteOne = 0
+          byteOne += (this.is_type%7)*(1<<0)
+          byteOne += (this.morphology%7)*(1<<3)
+          if(this.depressed_centre){byteOne += (1<<6)}
+          if(this.known){byteOne += (1<<7)}
+          ui8[1] = byteOne
+          ui16[1] = Math.max(0,parseInt(this.colon_loc[0]))
+          ui16[2] = Math.max(0,parseInt(this.colon_loc[1]))
+          ui8[6] = Math.max(0,parseInt(this.colon_loc[2]))
+          ui8[7] = Math.max(0,parseInt(this.image_nums[1]))
+          ui16[4] = Math.max(0,parseInt(this.image_nums[2]))
+          ui16[5] = Math.max(0,parseInt(this.height*10))
+          ui16[6] = Math.max(0,parseInt(this.size*10))
+          ui8[14] = Math.max(0,parseInt(this.image_nums[0]))
+          if(checkEndian()==1){//big endian, need to flip order
+            //console.warn("Running on big endian system...")
+            //ui8.reverse()
+          }
+          return res
+        }
+        this.fromBinary=function(bin){
+          let ui8 = new Uint8Array(bin);
+          let ui16 = new Uint16Array(bin);
+          if(checkEndian()==1){//big endian, need to flip order
+            //console.warn("Running on big endian system...")
+            //ui8.reverse()
+          }
+          switch(ui8[0]){
+            case 254:
+              this.known = (ui8[1] & (1<<7))>0
+            case 255:
+              this.is_type = (ui8[1] & 0b111)>>0
+              this.morphology = (ui8[1] & 0b111000)>>3
+              this.depressed_centre = (ui8[1] & (1<<6))>0
+              this.height = parseFloat(ui16[5])/10
+              this.size = parseFloat(ui16[6])/10
+              this.colon_loc=[ui16[1],ui16[2],ui8[6]]
+              this.image_nums=[ui8[14],ui8[7],ui16[4]]
+              break;
+            default:
+              console.error("Unsupported polyp version "+(0xFF-ui8[0]))
+              break;
+          }
+          this.updateDocument()
+        }
+        this.updateDocument=function(){
+          let circ = document.getElementById("circ_"+this.id)
+          circ.setAttributeNS(null, "r", Math.max(6,6+Math.log2(parseFloat(this.size)*2)))
+          circ.setAttributeNS(null, "cx", this.colon_loc[0])
+          circ.setAttributeNS(null, "cy", this.colon_loc[1])
+          let hidx = document.querySelector("tr[id='row_"+this.id+"']>td>input[name='height']")
+          let midx = document.querySelector("tr[id='row_"+this.id+"']>td>select[name='morphology']")
+          let didx = document.querySelector("tr[id='row_"+this.id+"']>td>input[name='depressed_centre']")
+          document.querySelector("tr[id='row_"+this.id+"']>td>select[name='is_type']").value=this.is_type
+          document.querySelector("tr[id='row_"+this.id+"']>td>select[name='location']").value=this.colon_loc[2]
+          document.querySelector("tr[id='row_"+this.id+"']>td>select[name='view']").value=this.image_nums[0]
+          document.querySelector("tr[id='row_"+this.id+"']>td>input[name='series']").value=this.image_nums[1]
+          document.querySelector("tr[id='row_"+this.id+"']>td>input[name='image']").value=this.image_nums[2]
+          document.querySelector("tr[id='row_"+this.id+"']>td>input[name='size']").value=this.size
+          document.querySelector("tr[id='row_"+this.id+"']>td>input[name='known']").checked=this.known
+          hidx.value=this.height
+          midx.value=this.morphology
+          didx.checked=this.depressed_centre
+          switch(parseInt(this.is_type)){
+            case 0: //polyp
+              hidx.style["display"] = ""
+              hidx.parentNode.style["background"]="none"
+              if(parseFloat(hidx.value)>=2.5){ //hide depressed center
+                midx.style["display"] = ""
+                midx.parentNode.style["background"]="none"
+                didx.style["display"] = "none"
+                didx.parentNode.style["background"]="#555"
+              }else{ //hide morpho dropdown
+                midx.style["display"] = "none"
+                midx.parentNode.style["background"]="#555"
+                didx.style["display"] = ""
+                didx.parentNode.style["background"]="none"
+              }
+              break;
+            default: //stricture or cancer
+              hidx.style["display"] = "none"
+              hidx.parentNode.style["background"]="#555"
+              midx.style["display"] = "none"
+              midx.parentNode.style["background"]="#555"
+              didx.style["display"] = "none"
+              didx.parentNode.style["background"]="#555"
+              break;
+          }
+        }
+        this.toString=function(){
+          let position_names=["Supine","LLD","RLD","Prone"]
+          let morpho_names = ["Sessile","Subpedunculated","Pedunculated","Flat","Flat with central depression"]
+          switch(this.is_type){ //allow for different reporting if is cancer
+          case 1: //is stricture
+            return(
+              "Indeterminate stricture.\n" +
+              "Location: " + this.locate(this.colon_loc) + ".\n" +
+              "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+            )
+            break;
+          case 2: //is cancer
+            return(
+              "Cancer size: " + this.size + "mm.\n" +
+              "Location: " + this.locate(this.colon_loc) + ".\n" +
+              "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+            )
+            break;
+          default: //everything else - interpret as polyp
+            if(this.size >= 6){ //only report if >6mm
+              return(
+                "Polyp size: " + this.size + "mm.\n" +
+                "Morphology: " + morpho_names[this.getMorphology()] + "\n" +
+                "Location: " + this.locate(this.colon_loc) + ".\n" +
+                "Image numbers: (" + position_names[this.image_nums[0]] + " Se "+ this.image_nums[1] + " Im " + this.image_nums[2] + ").\n\n"
+              )
+            }else{
+              return("")
+            }
+            break;
+          }
+        }
+      }
+    }
+    var ctc = new Scan()
+    function updateHandler(e){
+      //console.log(e.target)
+      //update Scan object
+      switch(e.target.id){
+        case "ct_indication":
+          ctc.indication=parseInt(e.target.value)
+        break;
+        case "ct_operator":
+          ctc.technique.operator=e.target.value
+        break;
+        case "ct_intubation_loc":
+          ctc.technique.intubation_loc=parseInt(e.target.value)
+        break;
+        case "ct_oral_contrast_vol":
+          ctc.technique.oral_contrast[0]=parseInt(e.target.value)
+        break;
+        case "ct_iv_contrast":
+          ctc.technique.iv_contrast=e.target.checked
+        break;
+        case "ct_buscopan":
+          ctc.technique.buscopan=parseInt(e.target.value)
+        break;
+        case "ct_view_supine":
+          ctc.technique.positions[0]=e.target.checked
+        break;
+        case "ct_view_lld":
+          ctc.technique.positions[1]=e.target.checked
+        break;
+        case "ct_view_rld":
+          ctc.technique.positions[2]=e.target.checked
+        break;
+        case "ct_view_prone":
+          ctc.technique.positions[3]=e.target.checked
+        break;
+        case "ct_balloon_deflated":
+          ctc.technique.balloon_deflated=e.target.checked
+        break;
+        case "ct_paired_ct_chest":
+          ctc.technique.paired_ct_chest=e.target.checked
+        break;
+        case "ct_faecal_tag":
+          ctc.adequacy.faecal_tag=e.target.checked
+        break;
+        case "ct_insufflation":
+          ctc.adequacy.insufflation=e.target.checked
+        break;
+        case "ct_completely_imaged":
+          ctc.adequacy.completely_imaged=e.target.checked
+        break;
+        case "ct_motion_artifact":
+          ctc.adequacy.motion_artifact[0]=parseInt(e.target.value)
+        break;
+        case "ct_appendix":
+          ctc.appendix=parseInt(e.target.value)
+        break;
+        case "ct_colon_comments":
+          ctc.colon_comments=e.target.value
+        break;
+        case "ct_extracolon_code":
+          ctc.extracolon_code=parseInt(e.target.value)
+        break;
+        case "ct_extracolon_comments":
+          ctc.extracolon_comments=e.target.value
+        break;
+        case "ct_conclusion":
+          ctc.conclusion=e.target.value
+        break;
+        default:
+        break;
+      }
+      //update displayed report
+      document.getElementById("report").innerHTML=ctc.toString()
+      //write displayed report to clipboard
+      clip(document.getElementById("report").innerHTML)
+    }
+    //onclick handler for polyp editing
+    function polypClickHandler(e){
+      let t = e.target
+      let id = parseInt(e.target.parentElement.parentElement.id.replace(/\D/g,'')) //index into table
+      let idx = ctc.polyps.findIndex(x=>x.id==id) //in case non consecutive nums - index into polyp list
+      let hidx=document.getElementById("h_"+id)
+      let midx=document.getElementById("m_"+id)
+      let didx=document.getElementById("d_"+id)
+      switch(t.name){
+        case "is_type":
+          ctc.polyps[idx].is_type = parseInt(t.value)
+          switch(parseInt(t.value)){
+            case 0: //polyp
+              hidx.style["display"] = ""
+              hidx.parentNode.style["background"]="none"
+              if(parseFloat(hidx.value)>=2.5){ //hide depressed center
+                midx.style["display"] = ""
+                midx.parentNode.style["background"]="none"
+                didx.style["display"] = "none"
+                didx.parentNode.style["background"]="#555"
+              }else{ //hide morpho dropdown
+                midx.style["display"] = "none"
+                midx.parentNode.style["background"]="#555"
+                didx.style["display"] = ""
+                didx.parentNode.style["background"]="none"
+              }
+              break;
+            default: //stricture or cancer
+              hidx.style["display"] = "none"
+              hidx.parentNode.style["background"]="#555"
+              midx.style["display"] = "none"
+              midx.parentNode.style["background"]="#555"
+              didx.style["display"] = "none"
+              didx.parentNode.style["background"]="#555"
+              break;
+          }
+          break;
+        case "location":
+          ctc.polyps[idx].colon_loc[2] = parseInt(t.value)
+          break;
+        case "view":
+          ctc.polyps[idx].image_nums[0] = parseInt(t.value)
+          break;
+        case "series":
+          ctc.polyps[idx].image_nums[1] = parseInt(t.value)
+          break;
+        case "image":
+          ctc.polyps[idx].image_nums[2] = parseInt(t.value)
+          break;
+        case "size":
+          ctc.polyps[idx].size = parseFloat(t.value)
+          document.getElementById("circ_"+id).setAttributeNS(null, "r", Math.max(6,6+Math.log2(parseFloat(t.value)*2)))
+          break;
+        case "height":
+          ctc.polyps[idx].height = parseFloat(t.value)
+          if(ctc.polyps[idx].height >= 2.5){ //hide depressed center
+            midx.style["display"] = ""
+            midx.parentNode.style["background"]="none"
+            didx.style["display"] = "none"
+            didx.parentNode.style["background"]="#555"
+          }else{ //hide morpho dropdown
+            midx.style["display"] = "none"
+            midx.parentNode.style["background"]="#555"
+            didx.style["display"] = ""
+            didx.parentNode.style["background"]="none"
+          }
+          break;
+        case "morphology":
+          ctc.polyps[idx].morphology = parseInt(t.value)
+          break;
+        case "depressed_centre":
+          ctc.polyps[idx].depressed_centre = t.checked
+          break;
+        case "known":
+          ctc.polyps[idx].known = t.checked
+          break;
+        default:
+          break;
+      }
+      //update report
+      document.getElementById("report").innerHTML=ctc.toString()
+    }
+    //handle polyp highlighting
+    function flashPolyp(n=0,state=false){
+      let circ = document.getElementById("circ_" + n)
+      let tr = document.getElementById("row_" + n)
+      if(state){
+        circ.setAttributeNS(null,"fill","#940") 
+        circ.setAttributeNS(null,"fill-opacity",1)
+        tr.style["background"] ="rgba(150,75,0,0.2)" 
+      }else{
+        circ.setAttributeNS(null,"fill","#F00") 
+        circ.setAttributeNS(null,"fill-opacity",0.5)
+        tr.style["background"] ="" 
+      }
+    }
+    //handle clicking of polyps
+    //minimal info is e.target, e.x and e.y
+    function polypCreate(e=null){
+      if(e==null){//allow calling blindly to create UI elements with polyp
+        e={"target":document.getElementById("0_cecum"),"x":0,"y":0}
+      }
+      if(e.target.nodeName=="rect"){
+        let img = e.target.parentElement.parentElement
+        let transform
+        let pid = ctc.polyps.length
+        let table = document.getElementById("polyp_table")
+        let headers = ["ID","Position", "Relevant Image","Size (mm)", "Height (mm)", "Cross section", "Depressed center?", "Known?","Delete"]
+        let tr = document.createElement("tr")
+        tr.className = "row_polyp"
+        if(ctc.polyps.length <= 0){
+        //flush helper text and populate table headers as assume uninitialised table
+          table.innerHTML = ""
+          let th = document.createElement("tr")
+          for(let i=0;i<headers.length;i++){
+            let cell = document.createElement("td")
+            cell.innerHTML = headers[i]
+            th.appendChild(cell)
+            th.className = "th"
+          }
+          table.appendChild(th)
+        }else{
+          //ensure pid is incremented to largest unassigned number
+          for(let i=0;i<ctc.polyps.length;i++){
+            pid = Math.max((ctc.polyps[i].id+1),pid)
+          }
+        }
+        //pid initialised, set pid dependent parameters
+        tr.id = "row_" + pid
+        tr.setAttribute("onmouseover","flashPolyp("+pid+",true)")
+        tr.setAttribute("onmouseout","flashPolyp("+pid+",false)")
+        //draw polyp editing table rows
+        for(let i=0;i<headers.length;i++){
+          let cell = document.createElement("td")
+          switch(i){
+            case 0:
+              let span_id = document.createElement("span")
+              span_id.innerHTML = " #"+(pid+1)
+              let input_type = document.createElement("select")
+              let type_options = ["Polyp","Stricture","Cancer"]
+              for(let j=0;j<type_options.length;j++){
+                let t_option = document.createElement("option")
+                t_option.value = j
+                t_option.innerHTML = type_options[j]
+                if(j==0){
+                  t_option.selected=""
+                }
+                input_type.appendChild(t_option)
+              }
+              input_type.value=0
+              input_type.name="is_type"
+              input_type.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_type)
+              cell.appendChild(span_id)
+              break;
+            case 1:
+              let input_position = document.createElement("select")
+              let posi_options = ["Caecum","Proximal ascending colon","Ascending colon","Distal ascending colon","Hepatic flexure","Proximal transverse colon","Transverse colon","Distal transverse colon","Splenic flexure","Proximal descending colon","Descending colon","Distal descending colon","Proximal sigmoid colon","Sigmoid colon","Distal sigmoid colon","Rectum"]
+              for(let j=0;j<posi_options.length;j++){
+                let p_option = document.createElement("option")
+                p_option.value = j
+                p_option.innerHTML = posi_options[j]
+                if(j==parseInt(e.target.id.replace(/\D/g,''))){
+                  p_option.selected=""
+                }
+                input_position.appendChild(p_option)
+              }
+              input_position.value=parseInt(e.target.id.replace(/\D/g,''))
+              input_position.name="location"
+              input_position.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_position)
+              break;
+            case 2:
+              let input_view = document.createElement("select")
+              let view_options = ["Supine","LLD","RLD","Prone"]
+              for(let j=0;j<view_options.length;j++){
+                let v_option = document.createElement("option")
+                v_option.value = j
+                v_option.innerHTML = view_options[j]
+                if(j==0){
+                  v_option.selected=""
+                }
+                input_view.appendChild(v_option)
+              }
+              input_view.value=0
+              input_view.name="view"
+              input_view.addEventListener("change",polypClickHandler)
+              let span_se = document.createElement("span")
+              span_se.innerHTML = " Se "
+              let input_se = document.createElement("input")
+              input_se.type="number"
+              input_se.placeholder="Se"
+              input_se.min=0
+              input_se.max=255
+              input_se.value=0
+              input_se.name="series"
+              input_se.addEventListener("change",polypClickHandler)
+              let span_im = document.createElement("span")
+              span_im.innerHTML = " Im "
+              let input_im = document.createElement("input")
+              input_im.type="number"
+              input_im.placeholder="Im"
+              input_im.min=0
+              input_im.max=65535
+              input_im.value=0
+              input_im.name="image"
+              input_im.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_view)
+              cell.appendChild(span_se)
+              cell.appendChild(input_se)
+              cell.appendChild(span_im)
+              cell.appendChild(input_im)
+              break;
+            case 3:
+              let input_size = document.createElement("input")
+              input_size.type="number"
+              input_size.placeholder="Size (mm)"
+              input_size.min=1
+              input_size.step=0.1
+              input_size.max=6553.5
+              input_size.value=1
+              input_size.name="size"
+              input_size.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_size)
+              break;
+            case 4:
+            let input_height = document.createElement("input")
+              input_height.type="number"
+              input_height.placeholder="Height (mm)"
+              input_height.min=0
+              input_height.step=0.1
+              input_height.max=6553.5
+              input_height.value=0
+              input_height.name="height"
+              input_height.addEventListener("change",polypClickHandler)
+              input_height.id="h_"+pid //allow fast access via js
+              cell.appendChild(input_height)
+              break;
+            case 5:
+              let input_cross_section = document.createElement("select")
+              let morpho_options = ["no stalk", "broad based", "stalk"]
+              for(let j=0;j<morpho_options.length;j++){
+                let cs_option = document.createElement("option")
+                cs_option.value = j
+                cs_option.innerHTML = morpho_options[j]
+                if(j==0){
+                  cs_option.selected=""
+                }
+                input_cross_section.appendChild(cs_option)
+              }
+              input_cross_section.value=0
+              input_cross_section.id="m_"+pid //allow fast access via js
+              input_cross_section.name="morphology"
+              input_cross_section.style["display"]="none" //disable by default
+              input_cross_section.addEventListener("change",polypClickHandler)
+              cell.style["background"]="#555"
+              cell.appendChild(input_cross_section)
+              break;
+            case 6:
+              let input_depressed_center = document.createElement("input")
+              input_depressed_center.id="d_"+pid //allow fast access via js
+              input_depressed_center.type="checkbox"
+              input_depressed_center.name="depressed_centre"
+              input_depressed_center.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_depressed_center)
+              break;
+            case 7:
+              let input_known = document.createElement("input")
+              input_known.id="k_"+pid //allow fast access via js
+              input_known.type="checkbox"
+              input_known.name="known"
+              input_known.addEventListener("change",polypClickHandler)
+              cell.appendChild(input_known)
+              break;
+            case 8:
+              let input_delbutton = document.createElement("input")
+              input_delbutton.type="button"
+              input_delbutton.value="X"
+              input_delbutton.setAttribute("onclick","polypRemove("+pid+")")
+              cell.appendChild(input_delbutton)
+              break;
+            default:
+              cell.innerHTML = headers[i]
+              break;
+          }
+          tr.appendChild(cell)
+        }
+        table.appendChild(tr)
+        let img_bound = img.getBoundingClientRect() //bbox of image rel to viewport
+        let click_pos=[e.x-img_bound.left,e.y-img_bound.top] //relative pos of click in img
+        let circ = document.createElementNS("http://www.w3.org/2000/svg","circle");
+        // initiate polyp
+        let polyp = new Polyp
+        //implicitly assume that only digits in rect id reflect the seq pos in colon
+        polyp.colon_loc = [click_pos[0],click_pos[1],parseInt(e.target.id.replace(/\D/g,''))]
+        polyp.id = pid
+        //draw polyp
+        circ.id = "circ_" + pid
+        circ.className = "svg_polyp"
+        circ.setAttributeNS(null,"cx",click_pos[0]) 
+        circ.setAttributeNS(null,"cy",click_pos[1])
+        circ.setAttributeNS(null,"r",7)
+        circ.setAttributeNS(null,'transform',"translate(174.85645,217.19293)")
+        circ.setAttributeNS(null,"fill","#F00") 
+        circ.setAttributeNS(null,"fill-opacity",0.5)
+        circ.setAttribute("onmouseover","flashPolyp("+pid+",true)")
+        circ.setAttribute("onmouseout","flashPolyp("+pid+",false)")
+        e.target.parentElement.appendChild(circ)
+        ctc.polyps.push(polyp)
+        //update displayed report
+        document.getElementById("report").innerHTML=ctc.toString()
+        return polyp
+      }
+    }
+    function polypRemove(id){
+      document.getElementById("circ_"+id).remove() //undraw entry
+      document.getElementById("row_"+id).remove() //remove edit table entry
+      ctc.polyps.splice(ctc.polyps.findIndex(x=>x.id===id),1) //remove entry
+      if(ctc.polyps.length <= 0){
+        let table = document.getElementById("polyp_table")
+        table.innerHTML = "<tr><td class='ts'><i>Click anywhere on the colon to add a polyp...</i></tr></td>"
+      }
+      //update displayed report
+      document.getElementById("report").innerHTML=ctc.toString()
+    }
+    document.getElementById('colon_image').addEventListener("click", function(e){polypCreate(e)})
+    var list = document.querySelectorAll("[id^='ct_']") //target all user elements on page with id starting with ct_ to attach callback func
+    for(let i=0;i<list.length;i++){
+      if(list[i].type=="text"||list[i].type=="number"||list[i].type=="textarea"){
+        list[i].addEventListener("keyup",updateHandler)
+      }
+      list[i].addEventListener("change",updateHandler)
+    }
+    console.log("This code written by Clifford Sia on 3/11/2023.")
+    console.log("look ma, no network requests!")
+  </script>
+</body>
+</html>
